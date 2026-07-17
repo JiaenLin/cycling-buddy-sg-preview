@@ -108,6 +108,11 @@ body{
 .fab.rec.active{background:var(--rec);color:#fff}
 .fab .dot{width:16px;height:16px;border-radius:50%;background:currentColor}
 .fab.rec.active .dot{border-radius:4px;width:15px;height:15px;background:#fff}
+.fab.compass .needle{display:grid;place-items:center;width:24px;height:24px;transition:transform .18s ease-out}
+.fab.compass .needle svg{width:24px;height:24px;stroke:none}
+.fab.compass.active{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.fab.compass.active .needle svg path:first-child{fill:var(--accent-ink)}
+.fab.compass.active .needle svg path:last-child{fill:rgba(255,255,255,.55)}
 
 .dock{
   position:absolute;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 14px);z-index:5;

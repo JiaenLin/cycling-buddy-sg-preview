@@ -30,6 +30,9 @@ let routeMode=false, graphReady=false, graphLoading=null;
 let routeStart=null, routeEnd=null, routeResult=null, mkStart=null, mkEnd=null;
 let routeOptions=null, routeSel='max';
 let recording=false, track=[], recDist=0, recStart=0, recTimer=null, lastPt=null;
+// compass / heading-follow ("face direction") mode
+let headingMode=false, deviceHeading=null, deviceHeadingTs=0, camRAF=null;
+const camTarget={center:null, bearing:null};
 
 // ---------- theme (before map init) ----------
 const savedTheme = localStorage.getItem('theme');
@@ -41,11 +44,12 @@ const map = new maplibregl.Map({
   container:'map',
   style: isDark()?DARK_STYLE:LIGHT_STYLE,
   center:[103.85,1.36], zoom:10.4, maxZoom:19,
-  attributionControl:false, dragRotate:false, pitchWithRotate:false
+  attributionControl:false,
+  dragRotate:true, pitchWithRotate:false, touchPitch:false, maxPitch:0  // rotatable, but kept top-down (no tilt)
 });
 map.addControl(new maplibregl.AttributionControl({compact:true}), 'bottom-left');
 map.addControl(new maplibregl.ScaleControl({maxWidth:92, unit:'metric'}), 'bottom-left');
-map.touchZoomRotate.disableRotation();
+map.touchZoomRotate.enableRotation();  // two-finger twist rotates the map
 
 const geo = new maplibregl.GeolocateControl({
   positionOptions:{enableHighAccuracy:true, timeout:15000, maximumAge:2000},
@@ -158,9 +162,11 @@ function tryFit(){
 function setLocActive(b){ locActive=b; $('locBtn').classList.toggle('active', b); }
 function onPos(e){
   const c=e.coords;
-  user={lat:c.latitude, lng:c.longitude, acc:c.accuracy, speed:c.speed};
+  const hd = (c.heading!=null && !isNaN(c.heading)) ? c.heading : null; // GPS course-over-ground
+  user={lat:c.latitude, lng:c.longitude, acc:c.accuracy, speed:c.speed, heading:hd};
   computeNearest(); updateNearUI(); refreshNearestSource();
   if(recording) pushTrack(user, e.timestamp);
+  if(headingMode){ camTarget.center=[user.lng,user.lat]; const b=currentHeading(); if(b!=null) camTarget.bearing=b; }
 }
 function computeNearest(){
   if(!user || !PCN_FEATURES.length){ nearest=null; return; }
@@ -354,6 +360,92 @@ $('gpxBtn').addEventListener('click', ()=>{
   }catch(err){ toast('Couldn’t export on this device'); }
 });
 
+// ---------- compass / heading-follow ("face direction") ----------
+function normBearing(b){ b=((b%360)+360)%360; return b>180 ? b-360 : b; }
+function screenAngle(){
+  const a = (screen.orientation && typeof screen.orientation.angle==='number') ? screen.orientation.angle : (window.orientation||0);
+  return a || 0;
+}
+// tilt-compensated compass heading from absolute device orientation (Android)
+function compassFromOrientation(alpha,beta,gamma){
+  const _x=(beta||0)*D2R, _y=(gamma||0)*D2R, _z=(alpha||0)*D2R;
+  const cX=Math.cos(_x),cY=Math.cos(_y),cZ=Math.cos(_z);
+  const sX=Math.sin(_x),sY=Math.sin(_y),sZ=Math.sin(_z);
+  const Vx=-cZ*sY - sZ*sX*cY, Vy=-sZ*sY + cZ*sX*cY;
+  let h=Math.atan2(Vx,Vy); if(h<0) h+=2*Math.PI;
+  return h/D2R;
+}
+function onOrient(e){
+  let h=null;
+  if(typeof e.webkitCompassHeading==='number' && !isNaN(e.webkitCompassHeading)){
+    h=e.webkitCompassHeading;                                   // iOS: already compass, CW from north
+  } else if((e.type==='deviceorientationabsolute' || e.absolute===true) && typeof e.alpha==='number'){
+    h=(compassFromOrientation(e.alpha,e.beta,e.gamma) + screenAngle()) % 360; // Android absolute
+  }
+  if(h==null || isNaN(h)) return;
+  deviceHeading=(h+360)%360; deviceHeadingTs=performance.now();
+  if(headingMode) camTarget.bearing=deviceHeading;
+}
+function requestOrientation(){
+  try{
+    const D=window.DeviceOrientationEvent;
+    if(D && typeof D.requestPermission==='function') return D.requestPermission().then(r=>r==='granted').catch(()=>false);
+  }catch(e){}
+  return Promise.resolve(true);
+}
+function startOrientation(){ window.addEventListener('deviceorientationabsolute',onOrient,true); window.addEventListener('deviceorientation',onOrient,true); }
+function stopOrientation(){ window.removeEventListener('deviceorientationabsolute',onOrient,true); window.removeEventListener('deviceorientation',onOrient,true); deviceHeading=null; }
+function currentHeading(){
+  const now=performance.now();
+  if(deviceHeading!=null && (now-deviceHeadingTs)<2500) return deviceHeading;       // live compass
+  if(user && user.heading!=null && user.speed!=null && user.speed>0.6) return user.heading; // GPS course when moving
+  return null;
+}
+function updateCompassIcon(){ const n=$('compassNeedle'); if(n) n.style.transform='rotate('+(-map.getBearing())+'deg)'; }
+function camLoop(){
+  if(!headingMode){ camRAF=null; return; }
+  const c=map.getCenter(), curB=map.getBearing(), curZ=map.getZoom();
+  let nb=curB, nc=[c.lng,c.lat], nz=curZ;
+  if(camTarget.bearing!=null){ let d=camTarget.bearing-curB; while(d>180)d-=360; while(d<-180)d+=360; nb=curB+d*0.16; }
+  if(camTarget.center){ nc=[c.lng+(camTarget.center[0]-c.lng)*0.22, c.lat+(camTarget.center[1]-c.lat)*0.22]; }
+  if(camTarget.zoom!=null){ nz=curZ+(camTarget.zoom-curZ)*0.16; if(Math.abs(camTarget.zoom-nz)<0.01){ nz=camTarget.zoom; camTarget.zoom=null; } } // hand zoom back to the user once we've zoomed in
+  map.jumpTo({center:nc, bearing:nb, zoom:nz});
+  updateCompassIcon();
+  camRAF=requestAnimationFrame(camLoop);
+}
+function enterHeading(){
+  headingMode=true;
+  const btn=$('headingBtn'); btn.classList.add('active'); btn.setAttribute('aria-pressed','true');
+  map.touchZoomRotate.disableRotation();               // two-finger = zoom only while following; avoids fighting the compass
+  if(!locActive) geo.trigger();                          // ensure GPS + the user dot/heading beam
+  requestOrientation().then(ok=>{ if(ok) startOrientation(); else toast('Motion access off — following GPS heading'); });
+  const b=currentHeading();
+  camTarget.center = user ? [user.lng,user.lat] : map.getCenter().toArray();
+  camTarget.bearing = (b!=null ? b : map.getBearing());
+  camTarget.zoom = Math.max(map.getZoom(), 16.4);
+  if(!camRAF) camRAF=requestAnimationFrame(camLoop);
+  toast(user ? 'Compass on — the map turns to the way you face' : 'Compass on — finding your location…');
+}
+function exitHeading(reset){
+  if(!headingMode) return;
+  headingMode=false;
+  const btn=$('headingBtn'); btn.classList.remove('active'); btn.setAttribute('aria-pressed','false');
+  stopOrientation();
+  map.touchZoomRotate.enableRotation();
+  if(camRAF){ cancelAnimationFrame(camRAF); camRAF=null; }
+  camTarget.center=camTarget.bearing=camTarget.zoom=null;
+  if(reset!==false) map.easeTo({bearing:0, pitch:0, duration:500});
+  updateCompassIcon();
+}
+$('headingBtn').addEventListener('click', ()=>{
+  if(headingMode){ exitHeading(true); return; }
+  if(Math.abs(normBearing(map.getBearing()))>2){ map.easeTo({bearing:0, pitch:0, duration:500}); return; } // straighten a hand-rotated map first
+  enterHeading();
+});
+map.on('rotate', updateCompassIcon);
+map.on('dragstart',   e=>{ if(headingMode && e.originalEvent) exitHeading(false); }); // a manual pan drops out of follow
+map.on('rotatestart', e=>{ if(headingMode && e.originalEvent) exitHeading(false); });
+
 // ---------- routing ----------
 function ensureGraph(){
   if(graphReady) return Promise.resolve(true);
@@ -366,6 +458,7 @@ function ensureGraph(){
 }
 function enterRoute(){
   if(recording){ toast('Stop recording first'); return; }
+  exitHeading(false);
   routeMode=true; $('routeBtn').classList.add('active'); map.getCanvas().style.cursor='crosshair';
   show('viewRoute'); resetRoutePanel(); setDock(false); ensureGraph();
 }
@@ -513,6 +606,7 @@ if('serviceWorker' in navigator){ window.addEventListener('load', ()=> navigator
 
 // ---------- init ----------
 syncThemeIcon();
+updateCompassIcon();
 $('dockHandle').addEventListener('click', ()=> setDock(!$('dock').classList.contains('collapsed')));
 if(matchMedia('(max-width:560px)').matches){ legend.classList.add('collapsed'); lgHead.setAttribute('aria-expanded','false'); }
 updatePeek();

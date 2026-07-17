@@ -53,6 +53,9 @@
     <button class="fab" id="locBtn" aria-label="Find my location" title="Locate me">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
     </button>
+    <button class="fab compass" id="headingBtn" aria-label="Face direction — rotate map to the way you're heading" aria-pressed="false" title="Compass · face your heading">
+      <span class="needle" id="compassNeedle"><svg viewBox="0 0 24 24" fill="none" stroke="none"><path d="M12 3.2 15.6 13 12 11.1 8.4 13Z" fill="var(--accent)"/><path d="M12 20.8 8.4 13 12 14.9 15.6 13Z" fill="#9AA6B2"/></svg></span>
+    </button>
     <button class="fab rec" id="recBtn" aria-label="Record a ride" title="Record ride"><span class="dot"></span></button>
   </div>
 
@@ -125,6 +128,7 @@
     <ul>
       <li>Drag to pan, pinch/scroll to zoom, tap a coloured path for its loop &amp; park.</li>
       <li><span class="kbd">◎</span> Locate — live position + the nearest connector.</li>
+      <li><span class="kbd">➤</span> Compass — with GPS on, one tap zooms in and turns the map to face the way you're heading. Tap again for north-up. Twist with two fingers to rotate any time.</li>
       <li><span class="kbd">⦚</span> Route — tap a start &amp; destination for offline turn-by-turn that prefers park connectors.</li>
       <li><span class="kbd">●</span> Record — traces your ride with distance, time and speed; export GPX.</li>
       <li>Toggle any loop in the Loops panel; tap its <span class="kbd">⤢</span> to frame it.</li>
