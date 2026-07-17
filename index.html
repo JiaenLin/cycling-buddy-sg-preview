@@ -116,6 +116,10 @@
         <div class="stat"><span class="v">7</span><span class="k">Loops</span></div>
         <div class="stat"><span class="v" id="stSeg">—</span><span class="k">Segments</span></div>
       </div>
+      <div class="wx-card rack-card" id="rackRow" hidden role="button" tabindex="0" title="Show this rack on the map">
+        <span class="wx-ic rk-ic" aria-hidden="true">P</span>
+        <span class="wx-tx"><span class="wx-main" id="rackMain">—</span><span class="wx-sub" id="rackSub">—</span></span>
+      </div>
       <div class="wx-card" id="wxRow" hidden data-sev="clear">
         <span class="wx-ic" id="wxIc" aria-hidden="true">☀️</span>
         <span class="wx-tx"><span class="wx-main" id="wxMain">—</span><span class="wx-sub" id="wxSub">—</span></span>
@@ -183,11 +187,13 @@
       <li><span class="kbd">➤</span> Compass — with GPS on, one tap zooms in and turns the map to face the way you're heading. Tap again for north-up. Twist with two fingers to rotate any time.</li>
       <li><span class="kbd">⦚</span> Route — tap a start &amp; destination for offline turn-by-turn that prefers park connectors.</li>
       <li><span class="kbd">⛅</span> Weather — a live 2-hour rain forecast for your area (and along your planned route), with a heads-up when thundery showers are likely. Tap the <b>cloud</b> button (top bar) for a rain-zone map of the whole island — coloured zones are wet, everywhere else is clear to ride.</li>
+      <li><span class="kbd">🌳</span> Parks — every park &amp; nature reserve is washed in green; tap one for its name and size. Toggle them in the Loops panel.</li>
+      <li><span class="kbd">P</span> Bike parking — zoom in past street level and LTA's bike racks appear. Solid <b>P</b> = sheltered, hollow = open-air; tap for the number of spaces. When you're located, the nearest rack shows in the panel — tap it to jump there.</li>
       <li><span class="kbd">●</span> Record — traces your ride with distance, time and speed; export GPX.</li>
       <li>Toggle any loop in the Loops panel; tap its <span class="kbd">⤢</span> to frame it.</li>
       <li><span class="kbd">⬇</span> Install — tap the install button (top bar) to add it to your home screen and run it offline like a native app.</li>
     </ul>
-    <p><b>Data &amp; maps</b><br>Park connectors (primary): NParks <i>Park Connector Loop</i> (data.gov.sg) — <span id="sheetKm">—</span> km, 7 loops. Rail Corridor: the former KTM railway heritage trail — <span id="sheetRailKm">—</span> km (dashed line; some stretches closed for improvement works, reopening 2027). Cycling paths (secondary): LTA <i>Cycling Path Network</i> — <span id="sheetCpnKm">—</span> km. Weather: NEA <i>2-hour forecast</i> via data.gov.sg (live, refreshed as you ride). Routing, Rail Corridor &amp; basemap: © OpenStreetMap contributors (ODbL); basemap hosting by OpenFreeMap.</p>
+    <p><b>Data &amp; maps</b><br>Park connectors (primary): NParks <i>Park Connector Loop</i> (data.gov.sg) — <span id="sheetKm">—</span> km, 7 loops. Rail Corridor: the former KTM railway heritage trail — <span id="sheetRailKm">—</span> km (dashed line; some stretches closed for improvement works, reopening 2027). Cycling paths (secondary): LTA <i>Cycling Path Network</i> — <span id="sheetCpnKm">—</span> km. Parks &amp; nature reserves: NParks via data.gov.sg — <span id="sheetParks">—</span> green spaces, <span id="sheetParkKm2">—</span> km² (playgrounds, fitness corners and grass verges in that dataset are left off — they're not cycling destinations). Bike parking: LTA <i>Bicycle Rack</i> — <span id="sheetRacks">—</span> racks, <span id="sheetSpaces">—</span> spaces. Weather: NEA <i>2-hour forecast</i> via data.gov.sg (live, refreshed as you ride). Routing, Rail Corridor &amp; basemap: © OpenStreetMap contributors (ODbL); basemap hosting by OpenFreeMap.</p>
     <p class="fine">Offline turn-by-turn prefers park connectors and avoids expressways. Your location stays on your device. Visits are counted anonymously — no cookies, no accounts, no personal data. Basemap tiles cache as you view them, so revisited areas work offline.</p>
     <p class="fine">Built by <a href="https://github.com/JiaenLin" target="_blank" rel="noopener">Lin Jiaen</a> · © 2026 Lin Jiaen · All rights reserved.<br>Enjoying the app? Share it with your kakis — tap the share button up top.</p>
   </div>

@@ -1,0 +1,13 @@
+{
+  "count": 305,
+  "reserves": 7,
+  "total_ha": 6473.6,
+  "total_km2": 64.7,
+  "bounds": [
+    103.6925,
+    1.2115,
+    104.05444,
+    1.46419
+  ],
+  "source": "NParks Parks and Nature Reserves (data.gov.sg)"
+}

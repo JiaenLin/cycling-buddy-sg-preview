@@ -23,8 +23,9 @@ const isDark = () => document.documentElement.getAttribute('data-theme') === 'da
 
 // ---------- state ----------
 let META=null, CPN_META=null, RAIL_META=null, PCN_FEATURES=[], mapLoaded=false, fitted=false;
+let PARKS_META=null, RACKS_META=null, RACK_FEATURES=[], nearRack=null;
 const hidden = new Set();
-let cpnVisible = true, railVisible = true;
+let cpnVisible = true, railVisible = true, parksVisible = true, racksVisible = true;
 let user=null, nearest=null, locActive=false;
 // routing
 let routeMode=false, graphReady=false, graphLoading=null;
@@ -70,12 +71,18 @@ map.on('load', () => { mapLoaded=true; tryFit(); });
 // tap-to-identify — prefer a park connector, fall back to a cycling path (handlers re-apply after a theme switch)
 map.on('click', e => {
   if(routeMode){ handleRouteClick([e.lngLat.lng, e.lngLat.lat]); return; }
+  // a rack is a small, deliberate target — it outranks whatever line or park sits under it
+  const rackHit = map.getLayer('racks-pt') ? map.queryRenderedFeatures(e.point,{layers:['racks-pt']})[0] : null;
+  if(rackHit){ showRackPopup(e, rackHit); return; }
   // cycling lines take priority so they stay tappable while the rain overlay is on
   const lineLayers=['pcn-line','rail-open','rail-closed','cpn-line'].filter(id=>map.getLayer(id));
   const hits = lineLayers.length ? map.queryRenderedFeatures(e.point,{layers:lineLayers}) : [];
   const isRail=id=>id==='rail-open'||id==='rail-closed';
   if(!hits.length){
-    if(wxVisible) showWxPopup(e);   // tapped an empty spot with the rain map on → forecast for that zone
+    if(wxVisible){ showWxPopup(e); return; }   // rain map is on → that tap means "forecast here"
+    // otherwise fall through to the park underneath, if any
+    const parkHit = map.getLayer('parks-fill') ? map.queryRenderedFeatures(e.point,{layers:['parks-fill']})[0] : null;
+    if(parkHit) showParkPopup(e, parkHit);
     return;
   }
   const f=hits.find(h=>h.layer.id==='pcn-line') || hits.find(h=>isRail(h.layer.id)) || hits[0];
@@ -91,13 +98,42 @@ map.on('click', e => {
   }
   new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'240px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
 });
-['pcn-line','cpn-line','rail-open','rail-closed'].forEach(id=>{
+['pcn-line','cpn-line','rail-open','rail-closed','racks-pt','parks-fill'].forEach(id=>{
   map.on('mouseenter', id, () => map.getCanvas().style.cursor='pointer');
   map.on('mouseleave', id, () => map.getCanvas().style.cursor='');
 });
+function showRackPopup(e, f){
+  const n=Number(f.properties.n)||0, sh=Number(f.properties.sh)===1, t=String(f.properties.t||'');
+  const bits=[ n? `${n} space${n===1?'':'s'}` : 'Bicycle rack', sh?'sheltered':'open-air' ];
+  if(t && t!=='Single') bits.push(t.toLowerCase()==='yellow-box' ? 'yellow box' : t.toLowerCase()+'-tier');
+  const html=`<b><i class="sw sw-rack">P</i>Bike parking</b><span class="pk">${esc(bits.join(' · '))}</span>`;
+  new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'240px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
+}
+function showParkPopup(e, f){
+  const p=f.properties, reserve=p.kind==='reserve';
+  const ha=Number(p.ha)||0;
+  const size = ha>=100 ? (ha/100).toFixed(1)+' km²' : ha.toFixed(1)+' ha';
+  const sub = (reserve?'Nature reserve':'Park') + ' · ' + size;
+  const html=`<b><i class="sw" style="background:var(--park)"></i>${esc(p.name)}</b><span class="pk">${esc(sub)}</span>`;
+  new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'240px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
+}
 
 function addLayers(){
   const dark = isDark();
+
+  // Parks & nature reserves — added first so they sit at the bottom: an area wash under every
+  // line. Reserves get the same hue at a heavier opacity (more green = wilder), which keeps the
+  // loop line colours the only thing competing on hue.
+  if(!map.getSource('parks')) map.addSource('parks',{type:'geojson',data:'data/parks.polys.geojson'});
+  const parkCol = getVar('--park') || (dark?'#3FA96B':'#2E8B57');
+  const parkVis = parksVisible ? 'visible' : 'none';
+  if(!map.getLayer('parks-fill')) map.addLayer({id:'parks-fill',type:'fill',source:'parks',
+    layout:{visibility:parkVis},
+    paint:{'fill-color':parkCol,'fill-opacity':['match',['get','kind'],'reserve',dark?0.22:0.20, dark?0.14:0.13],'fill-antialias':true}});
+  if(!map.getLayer('parks-line')) map.addLayer({id:'parks-line',type:'line',source:'parks',
+    layout:{visibility:parkVis,'line-join':'round'},
+    paint:{'line-color':parkCol,'line-width':['interpolate',['linear'],['zoom'],11,0.5,15,1.1],'line-opacity':0.42}});
+
   if(!map.getSource('cpn'))     map.addSource('cpn',{type:'geojson',data:'data/cpn.lines.geojson'});
   if(!map.getSource('pcn'))     map.addSource('pcn',{type:'geojson',data:'data/pcn.lines.geojson'});
   if(!map.getSource('nearest')) map.addSource('nearest',{type:'geojson',data:emptyFC()});
@@ -175,7 +211,41 @@ function addLayers(){
       'icon-size':['interpolate',['linear'],['zoom'],10,0.5,13,0.9],
       'icon-allow-overlap':true,'icon-ignore-placement':true}});
 
+  // Bike parking (LTA racks) — points on top, and only from z13.5: they're an amenity you look
+  // for once you're nearly there, not island-wide furniture.
+  rackEnsureIcons();
+  if(!map.getSource('racks')) map.addSource('racks',{type:'geojson',data:'data/racks.points.geojson'});
+  if(!map.getLayer('racks-pt')) map.addLayer({id:'racks-pt',type:'symbol',source:'racks',
+    minzoom:13.5,
+    layout:{visibility: racksVisible?'visible':'none',
+      'icon-image':['case',['==',['get','sh'],1], rackIconId(true), rackIconId(false)],
+      'icon-size':['interpolate',['linear'],['zoom'],13.5,0.42,16,0.62,18,0.72],
+      'icon-allow-overlap':false,'icon-padding':1}});
+
   refreshNearestSource(); refreshTrackSource(); refreshRouteSource(); refreshWxSource();
+}
+// Rack markers are drawn to canvas rather than using map glyphs: no font fetch, so they stay
+// crisp and keep working offline. Ids carry the theme because setStyle drops added images.
+function rackIconId(sheltered){ return 'rack-'+(sheltered?'sh':'op')+'-'+(isDark()?'d':'l'); }
+function rackEnsureIcons(){
+  const dpr=3, size=26, r=8.5;
+  const fill=getVar('--rack-fill') || (isDark()?'#E2E8F0':'#1F2937');
+  const glyph=getVar('--rack-glyph') || (isDark()?'#0E1613':'#FFFFFF');
+  for(const sheltered of [true,false]){
+    const id=rackIconId(sheltered); if(map.hasImage(id)) continue;
+    const cv=document.createElement('canvas'); cv.width=cv.height=size*dpr;
+    const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+    const cx=size/2, cy=size/2;
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+    // sheltered = solid (it has a roof); open-air = hollow ring
+    ctx.fillStyle = sheltered ? fill : glyph; ctx.fill();
+    ctx.lineWidth=2; ctx.strokeStyle=fill; ctx.stroke();
+    ctx.fillStyle = sheltered ? glyph : fill;
+    ctx.font='bold 12px "Segoe UI",system-ui,-apple-system,sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('P', cx, cy+0.5);
+    try{ map.addImage(id, ctx.getImageData(0,0,size*dpr,size*dpr), {pixelRatio:dpr}); }catch(e){}
+  }
 }
 function refreshRouteSource(){
   const src=map.getSource&&map.getSource('route'); if(!src) return;
@@ -199,6 +269,9 @@ fetch('data/pcn.lines.geojson').then(r=>r.json()).then(g=>{ PCN_FEATURES=g.featu
 fetch('data/cpn.meta.json').then(r=>r.json()).then(m=>{ CPN_META=m; appendCpnRow(); });
 fetch('data/rail.meta.json').then(r=>r.json()).then(m=>{ RAIL_META=m; appendRailRow(); });
 fetch('data/wx.zones.geojson').then(r=>r.json()).then(z=>{ ZONES=z; refreshWxSource(); }).catch(()=>{});
+fetch('data/parks.meta.json').then(r=>r.json()).then(m=>{ PARKS_META=m; appendParksRow(); }).catch(()=>{});
+fetch('data/racks.meta.json').then(r=>r.json()).then(m=>{ RACKS_META=m; appendRacksRow(); }).catch(()=>{});
+fetch('data/racks.points.geojson').then(r=>r.json()).then(g=>{ RACK_FEATURES=g.features; computeNearestRack(); updateRackUI(); }).catch(()=>{});
 
 function tryFit(){
   if(fitted || !mapLoaded || !META) return;
@@ -213,6 +286,7 @@ function onPos(e){
   const hd = (c.heading!=null && !isNaN(c.heading)) ? c.heading : null; // GPS course-over-ground
   user={lat:c.latitude, lng:c.longitude, acc:c.accuracy, speed:c.speed, heading:hd};
   computeNearest(); updateNearUI(); refreshNearestSource();
+  computeNearestRack(); updateRackUI();
   loadWeather(); updateWxUI();   // forecast for the area you're now in (throttled fetch)
   if(recording) pushTrack(user, e.timestamp);
   if(headingMode){ camTarget.center=[user.lng,user.lat]; const b=currentHeading(); if(b!=null) camTarget.bearing=b; }
@@ -244,6 +318,34 @@ function updateNearUI(){
   $('nearSub').innerHTML = `on <span class="dk-loop"><i style="background:${col}"></i>${esc(nm)}</span>`;
   updatePeek();
 }
+// Where can I actually leave the bike? The natural sibling of "nearest park connector".
+function computeNearestRack(){
+  if(!user || !RACK_FEATURES.length || !racksVisible){ nearRack=null; return; }
+  const mLat=110540, mLng=111320*Math.cos(user.lat*D2R);
+  let best=Infinity, bf=null;
+  for(const f of RACK_FEATURES){
+    const c=f.geometry.coordinates;
+    const dx=(c[0]-user.lng)*mLng, dy=(c[1]-user.lat)*mLat;
+    const d=dx*dx+dy*dy;
+    if(d<best){ best=d; bf=f; }
+  }
+  nearRack = bf ? {dist:Math.sqrt(best), n:Number(bf.properties.n)||0, sh:Number(bf.properties.sh)===1,
+                   lng:bf.geometry.coordinates[0], lat:bf.geometry.coordinates[1]} : null;
+}
+function updateRackUI(){
+  const row=$('rackRow'); if(!row) return;
+  // only worth surfacing when it's actually reachable — beyond ~2 km it's noise
+  if(!nearRack || nearRack.dist>2000){ row.hidden=true; return; }
+  row.hidden=false;
+  const d=nearRack.dist;
+  $('rackMain').textContent = (d<1000 ? Math.round(d)+' m' : (d/1000).toFixed(2)+' km') + ' away';
+  const bits=[ nearRack.n? `${nearRack.n} spaces` : 'Bicycle rack', nearRack.sh?'sheltered':'open-air' ];
+  $('rackSub').textContent = bits.join(' · ');
+}
+$('rackRow') && $('rackRow').addEventListener('click', ()=>{
+  if(!nearRack) return;
+  map.easeTo({center:[nearRack.lng,nearRack.lat], zoom:Math.max(map.getZoom(),16), duration:600});
+});
 function refreshNearestSource(){
   const src = map.getSource && map.getSource('nearest'); if(!src) return;
   if(!user || !nearest){ src.setData(emptyFC()); return; }
@@ -488,10 +590,74 @@ function buildLegend(){
   });
   appendRailRow();
   appendCpnRow();
+  appendParksRow();
+  appendRacksRow();
+}
+function appendParksRow(){
+  if(!PARKS_META) return;
+  const body=$('lgBody'); if(!body.children.length) return;   // loops not built yet — called again from buildLegend
+  if(body.querySelector('.lrow-parks')) return;
+  ensureExtrasSep();
+  const sp=$('sheetParks'); if(sp) sp.textContent=PARKS_META.count;
+  const sa=$('sheetParkKm2'); if(sa) sa.textContent=PARKS_META.total_km2.toFixed(1);
+  const row=document.createElement('div'); row.className='lrow lrow-parks';
+  row.innerHTML =
+    `<button class="sw" aria-pressed="true" aria-label="Toggle parks and nature reserves"><i style="background:var(--park)"></i></button>`+
+    `<button class="meta" aria-label="Frame parks"><span class="name">Parks &amp; reserves</span><span class="km">${PARKS_META.count} · ${PARKS_META.total_km2.toFixed(1)} km²</span></button>`+
+    `<button class="zoom" aria-label="Frame parks"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5"/></svg></button>`;
+  row.querySelector('.sw').addEventListener('click', ()=>toggleParks(row));
+  const frame=()=>map.fitBounds(PARKS_META.bounds,{padding:{top:80,bottom:180,left:40,right:40}});
+  row.querySelector('.meta').addEventListener('click', frame);
+  row.querySelector('.zoom').addEventListener('click', frame);
+  insertExtra(row, 'parks');
+}
+function toggleParks(row){
+  parksVisible=!parksVisible;
+  row.classList.toggle('off', !parksVisible);
+  row.querySelector('.sw').setAttribute('aria-pressed', String(parksVisible));
+  setParksVis();
+}
+function setParksVis(){
+  const v = parksVisible ? 'visible' : 'none';
+  ['parks-fill','parks-line'].forEach(id=>{ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility',v); });
+}
+function appendRacksRow(){
+  if(!RACKS_META) return;
+  const body=$('lgBody'); if(!body.children.length) return;
+  if(body.querySelector('.lrow-racks')) return;
+  ensureExtrasSep();
+  const sr=$('sheetRacks'); if(sr) sr.textContent=RACKS_META.count;
+  const ss=$('sheetSpaces'); if(ss) ss.textContent=RACKS_META.spaces.toLocaleString();
+  const row=document.createElement('div'); row.className='lrow lrow-racks';
+  row.innerHTML =
+    `<button class="sw" aria-pressed="true" aria-label="Toggle bike parking"><i class="sw-rack">P</i></button>`+
+    `<button class="meta" aria-label="Frame bike parking"><span class="name">Bike parking</span><span class="km">${RACKS_META.count} racks · ${RACKS_META.spaces.toLocaleString()} spaces</span></button>`+
+    `<button class="zoom" aria-label="Frame bike parking"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5"/></svg></button>`;
+  row.querySelector('.sw').addEventListener('click', ()=>toggleRacks(row));
+  const frame=()=>map.fitBounds(RACKS_META.bounds,{padding:{top:80,bottom:180,left:40,right:40}});
+  row.querySelector('.meta').addEventListener('click', frame);
+  row.querySelector('.zoom').addEventListener('click', frame);
+  insertExtra(row, 'racks');
+}
+function toggleRacks(row){
+  racksVisible=!racksVisible;
+  row.classList.toggle('off', !racksVisible);
+  row.querySelector('.sw').setAttribute('aria-pressed', String(racksVisible));
+  if(map.getLayer('racks-pt')) map.setLayoutProperty('racks-pt','visibility', racksVisible?'visible':'none');
+  computeNearestRack(); updateRackUI();
 }
 function ensureExtrasSep(){
   const body=$('lgBody'); if(!body || !body.children.length) return;
   if(!body.querySelector('.lg-sep-x')){ const s=document.createElement('div'); s.className='lg-sep lg-sep-x'; body.appendChild(s); }
+}
+// Each extra layer arrives on its own fetch, so order by rank rather than arrival:
+// Rail Corridor · cycling paths · parks · bike parking.
+const EXTRA_RANK = {rail:1, cpn:2, parks:3, racks:4};
+function insertExtra(row, key){
+  const body=$('lgBody'); const rank=EXTRA_RANK[key];
+  row.dataset.rank=rank;
+  const after=[...body.querySelectorAll('.lrow[data-rank]')].find(r=>Number(r.dataset.rank)>rank);
+  if(after) body.insertBefore(row, after); else body.appendChild(row);
 }
 function appendRailRow(){
   if(!RAIL_META) return;
@@ -509,8 +675,7 @@ function appendRailRow(){
   const frame=()=>map.fitBounds(RAIL_META.bounds,{padding:{top:80,bottom:180,left:40,right:40}});
   row.querySelector('.meta').addEventListener('click', frame);
   row.querySelector('.zoom').addEventListener('click', frame);
-  const cpn=body.querySelector('.lrow-cpn');
-  if(cpn) body.insertBefore(row, cpn); else body.appendChild(row);   // keep order: loops · Rail Corridor · cycling paths
+  insertExtra(row, 'rail');
 }
 function toggleRail(row){
   railVisible=!railVisible;
@@ -537,7 +702,7 @@ function appendCpnRow(){
   const frame=()=>map.fitBounds(CPN_META.bounds,{padding:{top:80,bottom:180,left:40,right:40}});
   row.querySelector('.meta').addEventListener('click', frame);
   row.querySelector('.zoom').addEventListener('click', frame);
-  body.appendChild(row);
+  insertExtra(row, 'cpn');
 }
 function toggleCpn(row){
   cpnVisible=!cpnVisible;
@@ -599,7 +764,10 @@ $('themeBtn').addEventListener('click', ()=>{
   document.documentElement.setAttribute('data-theme', t);
   localStorage.setItem('theme', t);
   syncThemeIcon();
-  map.setStyle(t==='dark'?DARK_STYLE:LIGHT_STYLE); // style.load re-adds our layers
+  // diff:false forces a full style reload. OpenFreeMap's light/dark styles share one layer
+  // structure, so a diffed setStyle succeeds silently — which strips our overlays without ever
+  // firing style.load to re-add them.
+  map.setStyle(t==='dark'?DARK_STYLE:LIGHT_STYLE, {diff:false}); // style.load re-adds our layers
 });
 
 // ---------- FABs ----------

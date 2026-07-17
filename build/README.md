@@ -48,3 +48,32 @@ node build_wx_zones.js                 # or: NODE_PATH=/path/to/node_modules nod
   and the maritime extent), © OpenStreetMap contributors.
 - Voronoi (`d3-delaunay`) is clipped to that boundary (`@turf/turf`), lightly simplified, and each
   cell gets an interior anchor point (`cx,cy`) for its weather icon. Output: ~47 polygons, ~14 KB.
+
+---
+
+## `build_parks_racks.js` — parks & bike parking
+
+Builds `data/parks.polys.geojson` + `data/racks.points.geojson` (and their `.meta.json`) from two
+data.gov.sg downloads kept in the repo parent: `NParksParksandNatureReserves.geojson` and
+`LTABicycleRackGEOJSON.geojson`. No dependencies — plain Node:
+
+```bash
+node build_parks_racks.js
+```
+
+**Parks.** The NParks file is an internal *land inventory*, not a "places to visit" list: 136 of its
+461 polygons are neighbourhood playgrounds (`... PG`, median 0.28 ha), plus 17 grass verges (`OS`)
+and 3 fitness corners (`FC`). Those are sub-hectare specks at cycling zoom and labelling them
+"Park" would be wrong, so they're dropped — 305 features remain (6,473 ha, 7 nature reserves).
+Names are uppercase cadastral strings (`PASIR RIS PK`) and get expanded + title-cased to match the
+house style already in `pcn.lines.geojson` ("Tiong Bahru Park"). Two special cases: the Botanic
+Gardens ships as four management zones (`SBG LC ZONE 1 (TNC)`) and Fort Canning as four `(FCP)`
+sub-zones. Geometry is Douglas-Peucker simplified (~2 m) and rounded to 5 dp: **3 MB → 270 KB**.
+Features are sorted largest-first so big reserves paint under the smaller parks inside them.
+
+**Racks.** Attributes arrive as an HTML table inside `Description` (the usual data.gov.sg KML
+quirk) and are parsed out to `n` (spaces), `sh` (sheltered) and `t` (type): 396 sites, 19,329
+spaces, 48 KB.
+
+Re-run whenever you re-download either source; then bump `VERSION` in `sw.js` so installed
+clients pick up the new data.

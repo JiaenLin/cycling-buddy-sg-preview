@@ -15,6 +15,9 @@
   --rec:#E02749;
   --cpn:#5E7169;
   --rail:#4A3226;
+  --park:#2E8B57;
+  --rack-fill:#1F2937;
+  --rack-glyph:#FFFFFF;
   --wx-storm:#6D28D9; --wx-heavy:#1D4ED8; --wx-rain:#0E7490; --wx-haze:#B45309; --wx-mist:#64748B; --wx-safe:#2E9E5B;
   --shadow:0 6px 20px rgba(18,32,24,.16), 0 1px 3px rgba(18,32,24,.10);
   --radius:16px;
@@ -36,6 +39,9 @@
   --rec:#FF3B5C;
   --cpn:#84958D;
   --rail:#DDD2C0;
+  --park:#3FA96B;
+  --rack-fill:#E2E8F0;
+  --rack-glyph:#0E1613;
   --wx-storm:#A78BFA; --wx-heavy:#60A5FA; --wx-rain:#38BDF8; --wx-haze:#FBBF24; --wx-mist:#94A3B8; --wx-safe:#4ADE80;
   --shadow:0 8px 26px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4);
 }
@@ -147,6 +153,12 @@ body{
 
 /* weather (NEA 2-hour forecast) */
 .wx-card{display:flex;align-items:center;gap:11px;margin-top:12px;padding:9px 11px;border-radius:12px;background:var(--panel-2);border:1px solid var(--line)}
+/* an author display: rule outranks the UA's [hidden]{display:none}, so restate it */
+.wx-card[hidden]{display:none}
+/* nearest bike rack — same card idiom as the weather row */
+.rack-card{cursor:pointer}
+.rk-ic{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--rack-fill);color:var(--rack-glyph);font-size:13px;font-weight:800;line-height:1}
+.sw-rack{display:grid;place-items:center;width:13px;height:13px;border-radius:50%;background:var(--rack-fill);color:var(--rack-glyph);font-size:8.5px;font-weight:800;line-height:1;font-style:normal;flex:0 0 auto}
 .wx-ic{font-size:22px;line-height:1;width:26px;text-align:center;flex:0 0 auto}
 .wx-tx{display:flex;flex-direction:column;min-width:0;flex:1;gap:1px}
 .wx-main{font-weight:650;font-size:14px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

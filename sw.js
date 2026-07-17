@@ -1,6 +1,6 @@
 /* Cycling Buddy SG PWA service worker — offline app shell + runtime basemap tile cache
    © 2026 Lin Jiaen · All rights reserved */
-const VERSION = 'cbsg-v8';
+const VERSION = 'cbsg-v9';
 const SHELL = VERSION + '-shell';
 const TILES = VERSION + '-tiles';
 const TILE_MAX = 800; // cap runtime tile cache entries
@@ -11,6 +11,8 @@ const SHELL_ASSETS = [
   'data/pcn.lines.geojson', 'data/pcn.meta.json',
   'data/cpn.lines.geojson', 'data/cpn.meta.json',
   'data/rail.lines.geojson', 'data/rail.meta.json',
+  'data/parks.polys.geojson', 'data/parks.meta.json',
+  'data/racks.points.geojson', 'data/racks.meta.json',
   'data/wx.zones.geojson',
   'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-192-maskable.png', 'icons/icon-512-maskable.png',

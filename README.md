@@ -9,7 +9,11 @@ live rain, record rides — on a real street basemap, no app store, no sign-up, 
 ![Cycling Buddy SG](icons/og.png)
 
 ## Features
-- **Map** — the 7 PCN loops (colour-coded), the Rail Corridor, and LTA cycling paths on a light/dark street basemap.
+- **Map** — the 7 PCN loops (colour-coded), the Rail Corridor, LTA cycling paths, and every
+  park & nature reserve on a light/dark street basemap.
+- **Parks & reserves** — 305 green spaces (64.7 km²) washed in under the network; tap for name and size.
+- **Bike parking** — LTA's 396 racks (19,329 spaces) from z13.5; solid **P** = sheltered, hollow = open-air.
+  When you're located, the nearest rack shows in the panel — tap to jump to it.
 - **Locate** — live GPS position and the nearest park connector.
 - **Route** — offline turn-by-turn A* routing with a cycling cost profile that prefers
   cycleways/park connectors over roads over footpaths, and **excludes expressways**. Two options
@@ -32,6 +36,11 @@ python -m http.server 8000      # then open http://localhost:8000
 ## Data & attribution
 - **Park connectors:** NParks *Park Connector Loop* (data.gov.sg, Singapore Open Data Licence).
 - **Cycling paths:** LTA *Cycling Path Network* (data.gov.sg).
+- **Parks & nature reserves:** NParks *Parks and Nature Reserves* (data.gov.sg). That dataset is a
+  land inventory rather than a list of destinations, so the build drops its 136 neighbourhood
+  playgrounds, 17 grass verges and 3 fitness corners, and gives the Botanic Gardens' four internal
+  management zones their real name. See [`build/build_parks_racks.js`](build/build_parks_racks.js).
+- **Bike parking:** LTA *Bicycle Rack* (data.gov.sg).
 - **Weather:** NEA 2-hour forecast (data.gov.sg).
 - **Routing graph, Rail Corridor & basemap:** © OpenStreetMap contributors (ODbL); basemap hosting by [OpenFreeMap](https://openfreemap.org).
 
