@@ -1,10 +1,43 @@
 <!DOCTYPE html>
+<!-- Cycling Buddy SG · © 2026 Lin Jiaen · All rights reserved · https://github.com/JiaenLin/cycling-buddy-sg -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Cycling Buddy SG — Singapore Park Connectors</title>
-<meta name="description" content="Plan, find and ride Singapore's Park Connector Network. Offline-ready cycling companion.">
+<title>Cycling Buddy SG — Singapore PCN Cycling Map &amp; Route Planner</title>
+<meta name="description" content="Free cycling map for Singapore's Park Connector Network (PCN). All 7 loops colour-coded, offline turn-by-turn routes that prefer park connectors, live NEA rain radar, ride recording with GPX export. Installs from your browser — no app store.">
+<meta name="author" content="Lin Jiaen">
+<link rel="canonical" href="https://jiaenlin.github.io/cycling-buddy-sg/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Cycling Buddy SG">
+<meta property="og:title" content="Cycling Buddy SG — Singapore PCN Cycling Map">
+<meta property="og:description" content="Free offline cycling map for Singapore's Park Connectors — 7 colour-coded loops, turn-by-turn routes, live rain radar, ride recording. No app store needed.">
+<meta property="og:url" content="https://jiaenlin.github.io/cycling-buddy-sg/">
+<meta property="og:image" content="https://jiaenlin.github.io/cycling-buddy-sg/icons/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="en_SG">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Cycling Buddy SG — Singapore PCN Cycling Map">
+<meta name="twitter:description" content="Free offline cycling map for Singapore's Park Connectors — routes, rain radar, ride recording.">
+<meta name="twitter:image" content="https://jiaenlin.github.io/cycling-buddy-sg/icons/og.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Cycling Buddy SG",
+  "url": "https://jiaenlin.github.io/cycling-buddy-sg/",
+  "description": "Free offline-capable cycling map for Singapore's Park Connector Network: all 7 PCN loops, turn-by-turn routing that prefers park connectors, live NEA rain forecast, ride recording with GPX export.",
+  "applicationCategory": "TravelApplication",
+  "operatingSystem": "Any",
+  "browserRequirements": "Requires JavaScript and a modern browser",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "SGD" },
+  "inLanguage": "en-SG",
+  "author": { "@type": "Person", "name": "Lin Jiaen", "url": "https://github.com/JiaenLin" },
+  "keywords": "Singapore cycling, Park Connector Network, PCN map, PCN loops, cycling route planner Singapore, Rail Corridor, bicycle Singapore"
+}
+</script>
 <meta name="theme-color" content="#0E1613" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#E9EDE7" media="(prefers-color-scheme: light)">
 <link rel="manifest" href="manifest.webmanifest">
@@ -28,6 +61,9 @@
       <div class="wm"><b>Cycling Buddy</b><span>PCN · Singapore</span></div>
     </div>
     <div class="topbtns">
+      <button class="iconbtn" id="shareBtn" aria-label="Share this app" title="Share">
+        <svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.6"/><circle cx="17.5" cy="5.5" r="2.6"/><circle cx="17.5" cy="18.5" r="2.6"/><path d="M8.4 10.8l6.8-4M8.4 13.2l6.8 4"/></svg>
+      </button>
       <button class="iconbtn" id="wxBtn" aria-label="Rain zones" aria-pressed="false" title="Rain zones — next 2 hours">
         <svg viewBox="0 0 24 24"><path d="M7 16.5a4.5 4.5 0 0 1-.4-8.98 6 6 0 0 1 11.5 1.48A3.5 3.5 0 0 1 17.5 16"/><path d="M8 19l-1.2 2.2M12.2 19l-1.2 2.2M16.4 19l-1.2 2.2"/></svg>
       </button>
@@ -151,8 +187,9 @@
       <li>Toggle any loop in the Loops panel; tap its <span class="kbd">⤢</span> to frame it.</li>
       <li><span class="kbd">⬇</span> Install — tap the install button (top bar) to add it to your home screen and run it offline like a native app.</li>
     </ul>
-    <p><b>Data &amp; maps</b><br>Park connectors (primary): NParks <i>Park Connector Loop</i> (data.gov.sg) — <span id="sheetKm">—</span> km, 7 loops. Rail Corridor: the former KTM railway heritage trail — <span id="sheetRailKm">—</span> km (dashed line; some stretches closed for improvement works, reopening 2027). Cycling paths (secondary): LTA <i>Cycling Path Network</i> — <span id="sheetCpnKm">—</span> km. Weather: NEA <i>2-hour forecast</i> via data.gov.sg (live, refreshed as you ride). Routing, Rail Corridor &amp; basemap: © OpenStreetMap contributors (ODbL), © CARTO.</p>
-    <p class="fine">Offline turn-by-turn prefers park connectors and avoids expressways. Your location stays on your device. Basemap tiles cache as you view them, so revisited areas work offline.</p>
+    <p><b>Data &amp; maps</b><br>Park connectors (primary): NParks <i>Park Connector Loop</i> (data.gov.sg) — <span id="sheetKm">—</span> km, 7 loops. Rail Corridor: the former KTM railway heritage trail — <span id="sheetRailKm">—</span> km (dashed line; some stretches closed for improvement works, reopening 2027). Cycling paths (secondary): LTA <i>Cycling Path Network</i> — <span id="sheetCpnKm">—</span> km. Weather: NEA <i>2-hour forecast</i> via data.gov.sg (live, refreshed as you ride). Routing, Rail Corridor &amp; basemap: © OpenStreetMap contributors (ODbL); basemap hosting by OpenFreeMap.</p>
+    <p class="fine">Offline turn-by-turn prefers park connectors and avoids expressways. Your location stays on your device. Visits are counted anonymously — no cookies, no accounts, no personal data. Basemap tiles cache as you view them, so revisited areas work offline.</p>
+    <p class="fine">Built by <a href="https://github.com/JiaenLin" target="_blank" rel="noopener">Lin Jiaen</a> · © 2026 Lin Jiaen · All rights reserved.<br>Enjoying the app? Share it with your kakis — tap the share button up top.</p>
   </div>
 
   <div class="sheet" id="installSheet" role="dialog" aria-modal="true" aria-label="Add to Home Screen">
@@ -184,5 +221,6 @@
 <script src="vendor/maplibre-gl.js"></script>
 <script src="router.js"></script>
 <script src="app.js"></script>
+<script data-goatcounter="https://cycling-buddy-sg.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </body>
 </html>

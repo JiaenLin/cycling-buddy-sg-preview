@@ -1,5 +1,6 @@
-/* Cycling Buddy SG PWA service worker — offline app shell + runtime basemap tile cache */
-const VERSION = 'cbsg-v7';
+/* Cycling Buddy SG PWA service worker — offline app shell + runtime basemap tile cache
+   © 2026 Lin Jiaen · All rights reserved */
+const VERSION = 'cbsg-v8';
 const SHELL = VERSION + '-shell';
 const TILES = VERSION + '-tiles';
 const TILE_MAX = 800; // cap runtime tile cache entries
@@ -40,6 +41,9 @@ self.addEventListener('fetch', e => {
   if(req.method !== 'GET') return;
   const url = new URL(req.url);
   const sameOrigin = url.origin === self.location.origin;
+
+  // Analytics -> never cache, let the browser handle it (fails silently offline)
+  if(url.hostname === 'gc.zgo.at' || url.hostname.endsWith('.goatcounter.com')) return;
 
   // App navigations -> serve cached shell (offline-first for the page itself)
   if(req.mode === 'navigate'){

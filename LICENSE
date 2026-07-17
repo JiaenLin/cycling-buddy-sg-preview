@@ -1,0 +1,38 @@
+Cycling Buddy SG
+Copyright (c) 2026 Lin Jiaen. All rights reserved.
+Contact: jiaenlin999@gmail.com
+
+USING THE APP
+The app itself — https://jiaenlin.github.io/cycling-buddy-sg/ — is free for
+everyone to use, install, and share.
+
+SOURCE CODE
+The source code in this repository is published for transparency and
+reference only ("source-available"). No license is granted to copy, modify,
+merge, publish, redistribute, sublicense, sell, or otherwise use the code,
+in whole or in part, in any other project — commercial or non-commercial —
+without prior written permission from the copyright holder.
+
+BRANDING
+"Cycling Buddy SG", the app's logo, icons, visual identity, and social
+images are the property of Lin Jiaen and may not be used to name, brand,
+or promote any other product or service.
+
+THIRD-PARTY COMPONENTS AND DATA
+This restriction does not extend to third-party components and open data
+used by the app, which remain under their own licences:
+- MapLibre GL JS (vendor/) — BSD-3-Clause, (c) MapLibre contributors.
+- Park connector & cycling path data — NParks "Park Connector Loop" and
+  LTA "Cycling Path Network" via data.gov.sg, Singapore Open Data Licence.
+- Weather — NEA 2-hour forecast via data.gov.sg.
+- Routing graph and Rail Corridor geometry (data/graph.json,
+  data/rail.lines.geojson) — derived from OpenStreetMap,
+  (c) OpenStreetMap contributors, and remain subject to the ODbL 1.0.
+- Basemap tiles — OpenFreeMap; map data (c) OpenStreetMap contributors.
+
+NO WARRANTY
+THE SOFTWARE AND THE APP ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ROUTE SUGGESTIONS ARE INFORMATIONAL ONLY — ALWAYS FOLLOW ROAD RULES AND
+RIDE SAFELY.

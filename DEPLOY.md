@@ -30,10 +30,9 @@ It prints an `https://…loca.lt` URL. First visit shows an interstitial asking 
 "tunnel password" — that's your public IP, shown at `https://loca.lt/mytunnelpassword`.
 The tunnel dies when you stop the command; use it only for quick phone checks.
 
-## Before real/public traffic
-- **Basemap:** this prototype uses CARTO's free tiles. For sustained/public use, switch
-  `LIGHT_STYLE` / `DARK_STYLE` in `app.js` to a keyed provider (MapTiler, Stadia) or a
-  self-hosted OpenFreeMap/planet tileset. One line each.
+## Production notes
+- **Basemap:** OpenFreeMap (`tiles.openfreemap.org`) — free for production use, no API key,
+  no usage limits. Self-hosting remains an option if it ever goes away.
 - MapLibre is pinned in `vendor/` — no CDN dependency.
 - The service worker (`sw.js`) precaches the app shell + your PCN/CPN data and runtime-caches
   basemap tiles, so once loaded the app works offline in the areas you've viewed.

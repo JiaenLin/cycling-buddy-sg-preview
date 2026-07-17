@@ -1,13 +1,14 @@
 'use strict';
-/* Cycling Buddy SG — Singapore PCN cycling companion (PWA) */
+/* Cycling Buddy SG — Singapore PCN cycling companion (PWA)
+   © 2026 Lin Jiaen · All rights reserved · https://github.com/JiaenLin/cycling-buddy-sg */
 
 const LOOP_COLORS = ['#FFD23F','#F59029','#CF3A22','#F26FC8','#A76BFF','#37BA66','#14A6C2'];
 const OTHER = '#8894A0';
 const ROUTE_ROAD = '#F79009';   // route on a car way (helmet warning)
 const ROUTE_FOOT = '#94A3B8';   // route on a footpath
-// CARTO free vector basemaps (no key; © OpenStreetMap © CARTO). Swap for a keyed/self-hosted source in production.
-const LIGHT_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
-const DARK_STYLE  = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+// OpenFreeMap vector basemaps — free for production use, no API key, no usage limits (© OpenStreetMap)
+const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/positron';
+const DARK_STYLE  = 'https://tiles.openfreemap.org/styles/dark';
 
 const colorExpr = ['match',['get','loop'],
   0,LOOP_COLORS[0],1,LOOP_COLORS[1],2,LOOP_COLORS[2],3,LOOP_COLORS[3],
@@ -463,7 +464,7 @@ function stopRec(){
   $('sumDist').textContent=(recDist/1000).toFixed(2);
   $('sumTime').textContent=fmtTime(el);
   $('sumAvg').textContent = el>3 ? ((recDist/el)*3.6).toFixed(1) : '0.0';
-  if(track.length>1) show('viewSum'); else { show('viewNearest'); toast('Ride too short to save'); }
+  if(track.length>1){ show('viewSum'); ping('ride-saved'); } else { show('viewNearest'); toast('Ride too short to save'); }
 }
 function buildGPX(){
   const pts=track.map(p=>`<trkpt lat="${p[1].toFixed(6)}" lon="${p[0].toFixed(6)}"></trkpt>`).join('');
@@ -614,6 +615,7 @@ $('gpxBtn').addEventListener('click', ()=>{
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href),4000);
     toast('GPX downloaded');
+    ping('gpx-export');
   }catch(err){ toast('Couldn’t export on this device'); }
 });
 
@@ -744,7 +746,7 @@ function computeRoute(){
     if(!ok) return;
     const two=Router.routeTwo(routeStart,routeEnd);
     if(!two){ routeOptions=null; routeResult=null; toast('No route found between those points'); hideOptions(); refreshRouteSource(); updateRtButtons(); return; }
-    routeOptions=two; renderOptions(two); selectRouteOption('max', true); setDock(false);
+    routeOptions=two; renderOptions(two); selectRouteOption('max', true); setDock(false); ping('route-planned');
     if(routeResult && routeResult.hasCarWay) toast('Heads up: this route uses roads — wear a helmet (required on Singapore roads).');
   });
 }
@@ -846,6 +848,19 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
 let toastT=null; const toastEl=$('toast');
 function toast(msg){ toastEl.textContent=msg; toastEl.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>toastEl.classList.remove('show'),3200); }
 
+// ---------- analytics (GoatCounter events; no-ops offline or if blocked) ----------
+function ping(name){ try{ if(window.goatcounter && goatcounter.count) goatcounter.count({path:name, title:name, event:true}); }catch(e){} }
+
+// ---------- share ----------
+const SHARE_URL = 'https://jiaenlin.github.io/cycling-buddy-sg/';
+$('shareBtn').addEventListener('click', async ()=>{
+  ping('share');
+  const data = {title:'Cycling Buddy SG', text:'Free offline cycling map for Singapore’s Park Connectors — routes, rain radar, ride recording.', url:SHARE_URL};
+  if(navigator.share){ try{ await navigator.share(data); return; }catch(e){ if(e && e.name==='AbortError') return; } }
+  try{ await navigator.clipboard.writeText(SHARE_URL); toast('Link copied — paste it anywhere'); }
+  catch(e){ toast(SHARE_URL); }
+});
+
 // ---------- install ----------
 const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
@@ -857,7 +872,7 @@ $('installBtn').addEventListener('click', async ()=>{
   $('installIos').hidden = !isIOS; $('installOther').hidden = isIOS;   // no native prompt (iOS, or not yet eligible) -> show steps
   openModal($('installSheet'));
 });
-window.addEventListener('appinstalled', ()=>{ $('installBtn').hidden=true; closeModal(); toast('Installed — find “Cycling Buddy” on your home screen'); });
+window.addEventListener('appinstalled', ()=>{ $('installBtn').hidden=true; closeModal(); toast('Installed — find “Cycling Buddy” on your home screen'); ping('install'); });
 
 // ---------- service worker ----------
 if('serviceWorker' in navigator){ window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(()=>{})); }
