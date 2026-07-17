@@ -1,4 +1,4 @@
-# Deploying Loop to HTTPS
+# Deploying Cycling Buddy SG to HTTPS
 
 The app needs **HTTPS** for phone GPS, install (Add to Home Screen), and the service
 worker. `localhost` works for desktop testing; a phone needs a real HTTPS URL. Everything

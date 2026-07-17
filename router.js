@@ -1,4 +1,4 @@
-/* Loop — offline bike router over an OpenStreetMap-derived graph.
+/* Cycling Buddy SG — offline bike router over an OpenStreetMap-derived graph.
    Built at design time from OSM (ways share node ids at junctions, so it's properly
    connected), degree-2 nodes contracted, and bundled as data/graph.json. Runs A* with a
    cycling cost profile that prefers park connectors. Works in the browser (window.Router)

@@ -1,5 +1,5 @@
-/* Loop PWA service worker — offline app shell + runtime basemap tile cache */
-const VERSION = 'loop-v7';
+/* Cycling Buddy SG PWA service worker — offline app shell + runtime basemap tile cache */
+const VERSION = 'cbsg-v1';
 const SHELL = VERSION + '-shell';
 const TILES = VERSION + '-tiles';
 const TILE_MAX = 800; // cap runtime tile cache entries

@@ -1,6 +1,6 @@
 {
-  "name": "Loop — Singapore Park Connectors",
-  "short_name": "Loop",
+  "name": "Cycling Buddy SG — Singapore Park Connectors",
+  "short_name": "Cycling Buddy",
   "description": "Plan, find and ride Singapore's Park Connector Network. Offline-ready cycling companion.",
   "start_url": "./",
   "scope": "./",

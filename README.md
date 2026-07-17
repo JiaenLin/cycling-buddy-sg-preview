@@ -1,4 +1,4 @@
-# Loop — Singapore Park Connector cycling companion
+# Cycling Buddy SG — Singapore Park Connector cycling companion
 
 An installable, **offline-capable** cycling map for Singapore's Park Connector Network (PCN).
 Find the nearest connector, plan routes that prefer park connectors, record rides, and see the

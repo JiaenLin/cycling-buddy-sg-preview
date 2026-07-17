@@ -1,5 +1,5 @@
 'use strict';
-/* Loop — Singapore PCN cycling companion (PWA) */
+/* Cycling Buddy SG — Singapore PCN cycling companion (PWA) */
 
 const LOOP_COLORS = ['#FFD23F','#F59029','#CF3A22','#F26FC8','#A76BFF','#37BA66','#14A6C2'];
 const OTHER = '#8894A0';
@@ -242,7 +242,7 @@ function stopRec(){
 }
 function buildGPX(){
   const pts=track.map(p=>`<trkpt lat="${p[1].toFixed(6)}" lon="${p[0].toFixed(6)}"></trkpt>`).join('');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Loop PCN SG" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>PCN ride ${new Date().toISOString().slice(0,10)}</name><trkseg>${pts}</trkseg></trk></gpx>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Cycling Buddy SG" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>PCN ride ${new Date().toISOString().slice(0,10)}</name><trkseg>${pts}</trkseg></trk></gpx>`;
 }
 
 // ---------- legend ----------
@@ -455,7 +455,7 @@ $('rtGpxBtn').addEventListener('click', ()=>{
   if(!routeResult) return;
   try{
     const pts=routeResult.coords.map(c=>`<trkpt lat="${c[1].toFixed(6)}" lon="${c[0].toFixed(6)}"></trkpt>`).join('');
-    const gpx=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Loop PCN SG" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>PCN route ${new Date().toISOString().slice(0,10)}</name><trkseg>${pts}</trkseg></trk></gpx>`;
+    const gpx=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Cycling Buddy SG" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>PCN route ${new Date().toISOString().slice(0,10)}</name><trkseg>${pts}</trkseg></trk></gpx>`;
     const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([gpx],{type:'application/gpx+xml'}));
     a.download='pcn-route-'+new Date().toISOString().slice(0,10)+'.gpx';
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
@@ -486,7 +486,7 @@ function toast(msg){ toastEl.textContent=msg; toastEl.classList.add('show'); cle
 let deferredPrompt=null;
 window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredPrompt=e; $('installBtn').hidden=false; });
 $('installBtn').addEventListener('click', async ()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $('installBtn').hidden=true; });
-window.addEventListener('appinstalled', ()=>{ $('installBtn').hidden=true; toast('Installed — find “Loop” on your home screen'); });
+window.addEventListener('appinstalled', ()=>{ $('installBtn').hidden=true; toast('Installed — find “Cycling Buddy” on your home screen'); });
 
 // ---------- service worker ----------
 if('serviceWorker' in navigator){ window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(()=>{})); }
