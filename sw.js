@@ -1,13 +1,13 @@
 /* Cycling Buddy SG PWA service worker — offline app shell + runtime basemap tile cache
    © 2026 Lin Jiaen · All rights reserved */
-const VERSION = 'cbsg-v11';
+const VERSION = 'cbsg-v12';
 const SHELL = VERSION + '-shell';
 const TILES = VERSION + '-tiles';
 const TILE_MAX = 800; // cap runtime tile cache entries
 
 const SHELL_ASSETS = [
   './', 'index.html', 'style.css', 'app.js', 'router.js', 'manifest.webmanifest',
-  'vendor/maplibre-gl.js', 'vendor/maplibre-gl.css',
+  'vendor/maplibre-gl.js', 'vendor/maplibre-gl.css', 'vendor/goatcounter-count.js',
   'data/pcn.lines.geojson', 'data/pcn.meta.json',
   'data/cpn.lines.geojson', 'data/cpn.meta.json',
   'data/rail.lines.geojson', 'data/rail.meta.json',
@@ -44,7 +44,8 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
   const sameOrigin = url.origin === self.location.origin;
 
-  // Analytics -> never cache, let the browser handle it (fails silently offline)
+  // Analytics beacon (GoatCounter) -> never cache; let the pixel/beacon hit the network directly
+  // so counts always register and the tile cache stays clean. (gc.zgo.at kept for older clients.)
   if(url.hostname === 'gc.zgo.at' || url.hostname.endsWith('.goatcounter.com')) return;
 
   // App navigations -> serve cached shell (offline-first for the page itself)
