@@ -1,5 +1,5 @@
 /* Cycling Buddy SG PWA service worker — offline app shell + runtime basemap tile cache */
-const VERSION = 'cbsg-v6';
+const VERSION = 'cbsg-v7';
 const SHELL = VERSION + '-shell';
 const TILES = VERSION + '-tiles';
 const TILE_MAX = 800; // cap runtime tile cache entries
@@ -10,6 +10,7 @@ const SHELL_ASSETS = [
   'data/pcn.lines.geojson', 'data/pcn.meta.json',
   'data/cpn.lines.geojson', 'data/cpn.meta.json',
   'data/rail.lines.geojson', 'data/rail.meta.json',
+  'data/wx.zones.geojson',
   'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-192-maskable.png', 'icons/icon-512-maskable.png',
   'icons/apple-touch-icon.png'

@@ -34,7 +34,7 @@ let recording=false, track=[], recDist=0, recStart=0, recTimer=null, lastPt=null
 let headingMode=false, deviceHeading=null, deviceHeadingTs=0, camRAF=null;
 const camTarget={center:null, bearing:null};
 // weather (NEA 2-hour forecast)
-let WX=null, wxLoading=null, wxVisible=false;
+let WX=null, wxLoading=null, wxVisible=false, ZONES=null;
 
 // ---------- theme (before map init) ----------
 const savedTheme = localStorage.getItem('theme');
@@ -69,17 +69,12 @@ map.on('load', () => { mapLoaded=true; tryFit(); });
 // tap-to-identify — prefer a park connector, fall back to a cycling path (handlers re-apply after a theme switch)
 map.on('click', e => {
   if(routeMode){ handleRouteClick([e.lngLat.lng, e.lngLat.lat]); return; }
-  const layers=['pcn-line','rail-open','rail-closed','cpn-line'].filter(id=>map.getLayer(id));
-  if(wxVisible && map.getLayer('wx-dot')) layers.push('wx-dot');
-  if(!layers.length) return;
-  const hits=map.queryRenderedFeatures(e.point,{layers});
-  if(!hits.length) return;
+  // cycling lines take priority so they stay tappable while the rain overlay is on
+  const lineLayers=['pcn-line','rail-open','rail-closed','cpn-line'].filter(id=>map.getLayer(id));
+  const hits = lineLayers.length ? map.queryRenderedFeatures(e.point,{layers:lineLayers}) : [];
   const isRail=id=>id==='rail-open'||id==='rail-closed';
-  const wxHit=hits.find(h=>h.layer.id==='wx-dot');
-  if(wxHit){
-    const p=wxHit.properties, end=wxEndLabel();
-    const html=`<b>${p.emoji} ${esc(p.area)}</b><span class="pk">${esc(p.forecast)}${end?(' · until '+end):' · next 2h'}</span>`;
-    new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'240px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
+  if(!hits.length){
+    if(wxVisible) showWxPopup(e);   // tapped an empty spot with the rain map on → forecast for that zone
     return;
   }
   const f=hits.find(h=>h.layer.id==='pcn-line') || hits.find(h=>isRail(h.layer.id)) || hits[0];
@@ -95,7 +90,7 @@ map.on('click', e => {
   }
   new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'240px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
 });
-['pcn-line','cpn-line','rail-open','rail-closed','wx-dot'].forEach(id=>{
+['pcn-line','cpn-line','rail-open','rail-closed'].forEach(id=>{
   map.on('mouseenter', id, () => map.getCanvas().style.cursor='pointer');
   map.on('mouseleave', id, () => map.getCanvas().style.cursor='');
 });
@@ -156,29 +151,28 @@ function addLayers(){
       'line-color':['match',['get','kind'], 'road', ROUTE_ROAD, 'foot', ROUTE_FOOT, getVar('--accent')],
       'line-width':['interpolate',['linear'],['zoom'],11,3.5,16,7.5]}});
 
-  // Weather overlay (NEA 2-hour forecast) — a "rain radar": soft glowing cells over wet areas, dry areas de-emphasised
-  if(!map.getSource('wx')) map.addSource('wx',{type:'geojson',data:emptyFC()});
+  // Weather overlay (NEA 2-hour forecast) — rain ZONES: slate→violet fills over wet areas + weather icons; dry areas stay clean
+  wxEnsureIcons();
+  if(!map.getSource('wx'))       map.addSource('wx',{type:'geojson',data:emptyFC()});
+  if(!map.getSource('wx-icons')) map.addSource('wx-icons',{type:'geojson',data:emptyFC()});
   const wxVisInit = wxVisible ? 'visible' : 'none';
   const wxWet = ['match',['get','sev'],['rain','heavy','storm'],true,false];
-  const wxSevColor = ['match',['get','sev'],'storm','#C026D3','heavy','#6366F1','rain','#3B82F6','#AEB8C2'];
-  if(!map.getLayer('wx-glow')) map.addLayer({id:'wx-glow',type:'circle',source:'wx',filter:wxWet,
+  const rainCol = dark
+    ? ['match',['get','sev'],'storm','#A85FD0','heavy','#7C82BE','rain','#8B98A8','#8B98A8']
+    : ['match',['get','sev'],'storm','#8B3FB0','heavy','#565C86','rain','#6E7C8C','#6E7C8C'];
+  // fills sit beneath the network lines so loops/PCN/rail stay dominant; dry cells render at 0 opacity
+  const belowLines = map.getLayer('cpn-casing') ? 'cpn-casing' : undefined;
+  if(!map.getLayer('wx-zone-fill')) map.addLayer({id:'wx-zone-fill',type:'fill',source:'wx',
     layout:{visibility:wxVisInit},
-    paint:{
-      'circle-color':['match',['get','sev'],'storm','#C026D3','heavy','#6366F1','#3B82F6'],
-      'circle-radius':['interpolate',['linear'],['zoom'],
-        9,['match',['get','sev'],'storm',16,'heavy',13,10],
-        13,['match',['get','sev'],'storm',36,'heavy',29,22]],
-      'circle-blur':0.85,'circle-opacity':0.30}});
-  if(!map.getLayer('wx-dot')) map.addLayer({id:'wx-dot',type:'circle',source:'wx',
-    layout:{visibility:wxVisInit},
-    paint:{
-      'circle-color':wxSevColor,
-      'circle-radius':['interpolate',['linear'],['zoom'],
-        9,['match',['get','sev'],'storm',5.5,'heavy',5.5,'rain',5,1.7],
-        13,['match',['get','sev'],'storm',8.5,'heavy',8.5,'rain',7.5,2.8]],
-      'circle-opacity':['match',['get','sev'],['rain','heavy','storm'],1,0.34],
-      'circle-stroke-width':['match',['get','sev'],['rain','heavy','storm'],1.7,0],
-      'circle-stroke-color': dark?'rgba(8,12,20,.82)':'rgba(255,255,255,.95)'}});
+    paint:{'fill-color':rainCol,'fill-opacity':['match',['get','sev'],'storm',0.40,'heavy',0.34,'rain',0.28, 0],'fill-antialias':true}}, belowLines);
+  if(!map.getLayer('wx-zone-line')) map.addLayer({id:'wx-zone-line',type:'line',source:'wx',filter:wxWet,
+    layout:{visibility:wxVisInit,'line-join':'round'},
+    paint:{'line-color':rainCol,'line-width':1.2,'line-opacity':0.5}}, belowLines);
+  if(!map.getLayer('wx-zone-icon')) map.addLayer({id:'wx-zone-icon',type:'symbol',source:'wx-icons',
+    layout:{visibility:wxVisInit,
+      'icon-image':['match',['get','sev'],'storm','wx-ic-storm','heavy','wx-ic-heavy','wx-ic-rain'],
+      'icon-size':['interpolate',['linear'],['zoom'],10,0.5,13,0.9],
+      'icon-allow-overlap':true,'icon-ignore-placement':true}});
 
   refreshNearestSource(); refreshTrackSource(); refreshRouteSource(); refreshWxSource();
 }
@@ -203,6 +197,7 @@ fetch('data/pcn.meta.json').then(r=>r.json()).then(m=>{ META=m; buildLegend(); f
 fetch('data/pcn.lines.geojson').then(r=>r.json()).then(g=>{ PCN_FEATURES=g.features; });
 fetch('data/cpn.meta.json').then(r=>r.json()).then(m=>{ CPN_META=m; appendCpnRow(); });
 fetch('data/rail.meta.json').then(r=>r.json()).then(m=>{ RAIL_META=m; appendRailRow(); });
+fetch('data/wx.zones.geojson').then(r=>r.json()).then(z=>{ ZONES=z; refreshWxSource(); }).catch(()=>{});
 
 function tryFit(){
   if(fitted || !mapLoaded || !META) return;
@@ -326,7 +321,9 @@ function updateWxUI(){
   $('wxSub').textContent = place + (end?(' · until '+end):'') + (wxIsStale()?' · offline':'');
   row.dataset.sev=info.sev; row.hidden=false;
   const msg=WX_ADVICE[info.sev];
-  if(msg){ adv.textContent=msg; adv.dataset.sev=info.sev; adv.hidden=false; } else adv.hidden=true;
+  if(msg){ adv.textContent=msg; adv.dataset.sev=info.sev; adv.hidden=false; }
+  else if(info.sev==='clear'||info.sev==='cloud'||info.sev==='wind'){ adv.textContent='Clear right now — good to ride.'; adv.dataset.sev='safe'; adv.hidden=false; }
+  else adv.hidden=true;
   updatePeek();
 }
 function routeWeather(coords){   // scan the whole path, not just the destination
@@ -354,26 +351,59 @@ function updateRouteWx(){
   if(views.viewRoute.hidden || !coords || !WX || !WX.areas.length){ el.hidden=true; return; }
   const rw=routeWeather(coords); if(!rw||!rw.worst){ el.hidden=true; return; }
   const w=rw.worst;
-  let txt;
+  let txt, sev=w.sev, emoji=w.emoji;
   if(w.sev==='storm'||w.sev==='heavy'||w.sev==='rain'){
-    txt = rw.pervasive ? (w.forecast+' along your route') : (w.forecast+' near '+w.area);
+    txt = (rw.pervasive ? (w.forecast+' along your route') : (w.forecast+' near '+w.area));
     if(!rw.pervasive && rw.anyDry) txt += ' · drier elsewhere';
+    txt += ' · next 2h';
   } else {
-    txt = w.forecast+' along your route';
+    txt = 'Clear along your route — good to go'; sev='safe'; emoji='☀️';
   }
-  el.innerHTML=`<span class="wx-ic">${w.emoji}</span><span>${esc(txt)} · next 2h</span>`;
-  el.dataset.sev=w.sev; el.hidden=false;
+  el.innerHTML=`<span class="wx-ic">${emoji}</span><span>${esc(txt)}</span>`;
+  el.dataset.sev=sev; el.hidden=false;
+}
+const WX_ICONS=[['rain','🌦️'],['heavy','🌧️'],['storm','⛈️']];
+function wxEnsureIcons(){   // render weather emoji to canvas → map images (no asset files, offline-safe)
+  const dpr=2, size=46;
+  for(const [sev,emoji] of WX_ICONS){
+    const id='wx-ic-'+sev; if(map.hasImage(id)) continue;
+    const cv=document.createElement('canvas'); cv.width=cv.height=size*dpr;
+    const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+    ctx.font='30px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(emoji, size/2, size/2+1);
+    try{ map.addImage(id, ctx.getImageData(0,0,size*dpr,size*dpr), {pixelRatio:dpr}); }catch(e){}
+  }
 }
 function refreshWxSource(){
-  const src=map.getSource&&map.getSource('wx'); if(!src) return;
-  if(!WX||!WX.areas.length){ src.setData(emptyFC()); return; }
-  src.setData({type:'FeatureCollection', features: WX.areas.map(a=>{ const i=wxInfo(a.forecast);
-    return {type:'Feature', geometry:{type:'Point', coordinates:[a.lng,a.lat]}, properties:{area:a.area, forecast:a.forecast, sev:i.sev, emoji:i.emoji}}; })});
+  const src=map.getSource&&map.getSource('wx'); const isrc=map.getSource&&map.getSource('wx-icons');
+  if(!src) return;
+  if(!ZONES||!ZONES.features||!WX||!WX.areas.length){ src.setData(emptyFC()); if(isrc) isrc.setData(emptyFC()); return; }
+  const byArea={}; for(const a of WX.areas) byArea[a.area]=a.forecast;
+  const zones=[], icons=[];
+  for(const z of ZONES.features){
+    const fc=byArea[z.properties.area]||'';
+    const i=wxInfo(fc), wet=(i.sev==='rain'||i.sev==='heavy'||i.sev==='storm');
+    zones.push({type:'Feature', properties:{area:z.properties.area, forecast:fc, sev:i.sev, emoji:i.emoji}, geometry:z.geometry});
+    if(wet) icons.push({type:'Feature', properties:{sev:i.sev}, geometry:{type:'Point', coordinates:[z.properties.cx, z.properties.cy]}});
+  }
+  src.setData({type:'FeatureCollection', features:zones});
+  if(isrc) isrc.setData({type:'FeatureCollection', features:icons});
+}
+function showWxPopup(e){
+  let area, forecast, i;
+  const zh = map.getLayer('wx-zone-fill') ? map.queryRenderedFeatures(e.point,{layers:['wx-zone-fill']})[0] : null;
+  if(zh){ area=zh.properties.area; forecast=zh.properties.forecast; i=wxInfo(forecast); }
+  else { const n=nearestForecast(e.lngLat.lat, e.lngLat.lng); if(!n) return; area=n.area; forecast=n.forecast; i=wxInfo(forecast); }
+  const end=wxEndLabel(), wet=(i.sev==='rain'||i.sev==='heavy'||i.sev==='storm');
+  const html = wet
+    ? `<b>${i.emoji} ${esc(area)}</b><span class="pk">${esc(forecast)}${end?(' · until '+end):' · next 2h'}</span>`
+    : `<b>☀️ ${esc(area)}</b><span class="pk">Clear · good to ride${end?(' · until '+end):''}</span>`;
+  new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'240px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
 }
 function wxCapUpdate(){ const t=$('wxCapTime'); if(t) t.textContent = wxEndLabel() ? ('until '+wxEndLabel()) : ''; }
 function setWxVis(){
   const v = wxVisible ? 'visible' : 'none';
-  ['wx-glow','wx-dot'].forEach(id=>{ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility',v); });
+  ['wx-zone-fill','wx-zone-line','wx-zone-icon'].forEach(id=>{ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility',v); });
   const cap=$('wxCaption'); if(cap) cap.hidden = !wxVisible;
   const btn=$('wxBtn'); if(btn){ btn.classList.toggle('active', wxVisible); btn.setAttribute('aria-pressed', String(wxVisible)); }
   if(wxVisible) wxCapUpdate();
@@ -381,10 +411,10 @@ function setWxVis(){
 function setWxOverlay(on){ wxVisible=on; setWxVis(); if(on) loadWeather(); }
 $('wxBtn').addEventListener('click', ()=>{
   setWxOverlay(!wxVisible);
-  if(!wxVisible){ toast('Rain map off'); return; }
-  if(!WX){ toast('Rain map on — loading forecast…'); return; }
+  if(!wxVisible){ toast('Rain zones off'); return; }
+  if(!WX){ toast('Rain zones on — loading forecast…'); return; }
   const wet = WX.areas.some(a=>['rain','heavy','storm'].includes(wxInfo(a.forecast).sev));
-  toast(wet ? 'Rain map on — glowing areas have showers now' : 'Rain map on — no showers on the island right now');
+  toast(wet ? 'Rain zones on — coloured areas have showers; clear elsewhere' : 'Rain zones on — no showers on the island right now');
 });
 $('wxRefresh').addEventListener('click', ()=>{
   const b=$('wxRefresh'); b.classList.add('spin');

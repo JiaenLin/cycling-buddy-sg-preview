@@ -31,3 +31,20 @@ track 1.45, tertiary 1.70, **footway 1.90**, secondary 2.30, primary 3.00; park-
 Expressways (motorway/trunk) are excluded from the graph entirely. Tune there and reload — no rebuild needed.
 
 > `osm_all.json` / `osm_roads.json` are large intermediates and are git-ignored.
+
+# Building the weather zones
+
+`data/wx.zones.geojson` are the **rain-zone** polygons for the live NEA 2-hour forecast — one
+Voronoi cell per forecast area, clipped to Singapore's coastline. The area points are stable, so
+this is a **one-time** build; only the fill colour updates live in the app.
+
+```bash
+npm install d3-delaunay @turf/turf     # dev-only, NOT shipped in the PWA
+node build_wx_zones.js                 # or: NODE_PATH=/path/to/node_modules node build_wx_zones.js
+```
+
+- Area points come from the data.gov.sg 2-hour forecast `area_metadata` (47 `label_location`s).
+- The Singapore boundary comes from Nominatim (OSM admin polygon — covers all areas incl. islands
+  and the maritime extent), © OpenStreetMap contributors.
+- Voronoi (`d3-delaunay`) is clipped to that boundary (`@turf/turf`), lightly simplified, and each
+  cell gets an interior anchor point (`cx,cy`) for its weather icon. Output: ~47 polygons, ~14 KB.
