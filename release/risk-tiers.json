@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "defaultTier": 2,
+  "tiers": {
+    "0": "Documentation only",
+    "1": "Copy, style, metadata, or low-risk visual",
+    "2": "Application logic or generated data",
+    "3": "Routing, service worker, privacy, dependencies, permissions, architecture, schema, or release infrastructure"
+  },
+  "rules": [
+    {
+      "tier": 0,
+      "reason": "Documentation-only path",
+      "patterns": [
+        "(^|/)[^/]+\\.md$",
+        "^LICENSE$",
+        "^llms\\.txt$"
+      ]
+    },
+    {
+      "tier": 1,
+      "reason": "Presentation, discoverability, or image asset",
+      "patterns": [
+        "^style\\.css$",
+        "^index\\.html$",
+        "^icons/",
+        "^robots\\.txt$",
+        "^sitemap\\.xml$",
+        "^build/og\\.svg$"
+      ]
+    },
+    {
+      "tier": 2,
+      "reason": "Application logic, generated data, or data generator",
+      "patterns": [
+        "^app\\.js$",
+        "^data/(?!graph\\.json$)",
+        "^build/(?!build_graph\\.py$|download_paths\\.py$|download_roads\\.py$)"
+      ]
+    },
+    {
+      "tier": 3,
+      "reason": "Routing, PWA boundary, dependency, schema, security, or release-system path",
+      "patterns": [
+        "^router\\.js$",
+        "^sw\\.js$",
+        "^manifest\\.webmanifest$",
+        "^data/graph\\.json$",
+        "^build/(build_graph|download_paths|download_roads)\\.py$",
+        "^vendor/",
+        "^package(-lock)?\\.json$",
+        "^\\.gitignore$",
+        "^playwright\\.config\\.mjs$",
+        "^scripts/",
+        "^tests/",
+        "^release/",
+        "^\\.github/"
+      ]
+    }
+  ]
+}

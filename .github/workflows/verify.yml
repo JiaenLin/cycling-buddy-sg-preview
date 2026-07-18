@@ -1,0 +1,68 @@
+name: Release verification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic-verification:
+    name: deterministic-verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Classify change risk
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/classify-risk.mjs --base "$BASE_SHA"
+      - name: Run deterministic release verification
+        run: |
+          mkdir -p .artifacts
+          node scripts/verify.mjs > .artifacts/verification.txt
+          cat .artifacts/verification.txt
+      - name: Archive deterministic gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deterministic-verification-${{ github.sha }}
+          path: .artifacts/verification.txt
+          if-no-files-found: warn
+
+  browser-regression:
+    name: browser-regression
+    needs: deterministic-verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run verify:browser
+      - name: Archive browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-regression-${{ github.sha }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14

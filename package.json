@@ -1,0 +1,20 @@
+{
+  "name": "cycling-buddy-sg-release-gates",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Development-only verification and release gates for Cycling Buddy SG",
+  "scripts": {
+    "risk:classify": "node scripts/classify-risk.mjs --working-tree",
+    "verify": "node scripts/verify.mjs",
+    "verify:browser": "playwright test",
+    "verify:all": "npm run verify && npm run verify:browser",
+    "release:manifest": "node scripts/release-manifest.mjs",
+    "release:verify-deployment": "node scripts/verify-deployment.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "repository": "JiaenLin/cycling-buddy-sg-preview",
+  "branch": "main",
+  "url": "https://jiaenlin.github.io/cycling-buddy-sg-preview/",
+  "promotion": "same-commit-fast-forward",
+  "rule": "Push the candidate commit unchanged, verify CI and all manifest assets at the preview URL, record owner approval, then fast-forward production to the identical commit without rebuilding."
+}
