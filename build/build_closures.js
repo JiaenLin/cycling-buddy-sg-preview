@@ -14,8 +14,8 @@
  * We DON'T reroute or trace the schematic detour (that produced a wrong line twice). Instead we
  * flag the affected stretch of the EXISTING loop: the Southern Ridges Loop (loop 3) where it runs
  * through Gardens by the Bay along the closed waterfront. The app draws a red "diversion risk" glow
- * over that stretch + a marker; tap -> notice + official map. Geometry is the real PCN geometry
- * (clipped to the affected area), so nothing is invented.
+ * over that stretch + a marker; tap -> notice + official map. Geometry is the exact real PCN
+ * feature tagged for Gardens by the Bay, so nothing is invented.
  */
 'use strict';
 const fs = require('fs');
@@ -24,30 +24,25 @@ const OUT = path.join(__dirname, '..', 'data');
 const round = n => Number(n.toFixed(5));
 
 const MAP_URL = 'https://www.gardensbythebay.com.sg/content/dam/gbb-2021/image/about-us/media-room/2026/wetlands-by-the-bay/Diversion-map.pdf';
-const MARKER = [103.87314, 1.28262];   // "no cycling" sign on the closed waterfront promenade
-
-// The affected stretch = the closed waterfront promenade only (the user's tight outline).
-// Keep this SMALL — over-marking implies open paths are shut. See build/DIVERSIONS.md.
+// The affected stretch = the shoreline promenade facing Marina Reservoir. In the PCN data that's
+// the Southern Ridges Loop (loop 3) segment tagged park "Gardens by the Bay" — the line that runs
+// NW along the reservoir edge (NOT the east descent / MCE bottom loop, which is a different part of
+// the loop). We glow exactly that one real segment; marker sits at its length-midpoint.
 const RISK_LOOP = 3;
-const BB = { w:103.8660, s:1.2816, e:103.8739, n:1.2848 };
-const inBB = ([x,y]) => x>=BB.w && x<=BB.e && y>=BB.s && y<=BB.n;
+const RISK_PARK = 'Gardens by the Bay';
 
-// Clip a segment to the bbox: keep runs of inside points, plus one adjacent boundary point each
-// side so the glow stays continuous to the edge of the circled area (no visible gaps).
-function clip(coords){
-  const runs=[]; let run=null;
-  for(let i=0;i<coords.length;i++){
-    const here=inBB(coords[i]);
-    if(here){
-      if(!run){ run=[]; if(i>0) run.push(coords[i-1]); }   // reach back to the boundary
-      run.push(coords[i]);
-    } else if(run){
-      run.push(coords[i]);                                  // reach forward to the boundary
-      runs.push(run); run=null;
-    }
+const mLat=110540, mLng=111320*Math.cos(1.284*Math.PI/180);
+function lengthMidpoint(coords){
+  if(!Array.isArray(coords) || coords.length<2) throw new Error('Closure line must contain at least two coordinates');
+  let total=0; const segs=[];
+  for(let i=1;i<coords.length;i++){ const d=Math.hypot((coords[i][0]-coords[i-1][0])*mLng,(coords[i][1]-coords[i-1][1])*mLat); segs.push(d); total+=d; }
+  if(total<=0) throw new Error('Closure line has zero length');
+  let acc=0; const half=total/2;
+  for(let i=0;i<segs.length;i++){
+    if(acc+segs[i]>=half){ const t=(half-acc)/segs[i]; return [round(coords[i][0]+t*(coords[i+1][0]-coords[i][0])), round(coords[i][1]+t*(coords[i+1][1]-coords[i][1]))]; }
+    acc+=segs[i];
   }
-  if(run) runs.push(run);
-  return runs.map(r => r.map(p => [round(p[0]), round(p[1])])).filter(r => r.length>=2);
+  return coords[Math.floor(coords.length/2)];
 }
 
 const active = {
@@ -58,15 +53,25 @@ const active = {
 };
 
 const pcn = JSON.parse(fs.readFileSync(path.join(OUT,'pcn.lines.geojson'),'utf8'));
-const riskFeatures = [];
-let riskKm = 0, mLat=110540, mLng=111320*Math.cos(1.283*Math.PI/180);
-for(const f of pcn.features){
-  if(f.properties.loop !== RISK_LOOP) continue;
-  for(const run of clip(f.geometry.coordinates)){
-    for(let i=1;i<run.length;i++){ const dx=(run[i][0]-run[i-1][0])*mLng, dy=(run[i][1]-run[i-1][1])*mLat; riskKm += Math.hypot(dx,dy)/1000; }
-    riskFeatures.push({ type:'Feature', properties:{ kind:'risk' }, geometry:{ type:'LineString', coordinates:run } });
-  }
+const matches = pcn.features.filter(f =>
+  f.properties.loop === RISK_LOOP &&
+  f.properties.park === RISK_PARK &&
+  f.geometry && f.geometry.type === 'LineString'
+);
+if(matches.length !== 1){
+  throw new Error(`Expected exactly one ${RISK_PARK} feature on loop ${RISK_LOOP}; found ${matches.length}`);
 }
+const riskCoords = matches[0].geometry.coordinates.map(([lng,lat]) => [round(lng),round(lat)]);
+let riskKm = 0;
+for(let i=1;i<riskCoords.length;i++){
+  const dx=(riskCoords[i][0]-riskCoords[i-1][0])*mLng;
+  const dy=(riskCoords[i][1]-riskCoords[i-1][1])*mLat;
+  riskKm += Math.hypot(dx,dy)/1000;
+}
+const MARKER = lengthMidpoint(riskCoords);
+const riskFeatures = [
+  { type:'Feature', properties:{ kind:'risk' }, geometry:{ type:'LineString', coordinates:riskCoords } }
+];
 
 const fc = { type:'FeatureCollection', features:[
   ...riskFeatures,
