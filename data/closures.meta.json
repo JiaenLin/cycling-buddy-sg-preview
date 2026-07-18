@@ -1,19 +1,19 @@
 {
   "count": 1,
-  "closed_m": 909,
   "marker": [
-    103.87153,
-    1.28184
+    103.87314,
+    1.28262
   ],
   "active": [
     {
       "name": "Gardens by the Bay — Bay South",
       "title": "Cycling diversion — Bay South",
-      "note": "Waterfront Promenade closed to cyclists for the Bay South–Bay East bridge works. Detour around the Bay South perimeter and follow on-site signage.",
+      "note": "No cycling on the waterfront promenade facing Marina Reservoir, for the Bay South–Bay East bridge works. The cycling detour goes around the Bay South perimeter — follow on-site signage.",
       "from": "2026-05-04",
       "until": "~2028",
-      "src": "gardensbythebay.com.sg"
+      "src": "gardensbythebay.com.sg",
+      "url": "https://www.gardensbythebay.com.sg/content/dam/gbb-2021/image/about-us/media-room/2026/wetlands-by-the-bay/Diversion-map.pdf"
     }
   ],
-  "source": "OpenStreetMap (geometry) + Gardens by the Bay notice"
+  "source": "Gardens by the Bay notice; marker point from OpenStreetMap"
 }

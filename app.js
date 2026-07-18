@@ -72,8 +72,7 @@ map.on('load', () => { mapLoaded=true; tryFit(); });
 map.on('click', e => {
   if(routeMode){ handleRouteClick([e.lngLat.lng, e.lngLat.lat]); return; }
   // a closure alert outranks everything — it's the most important thing to surface if tapped
-  const closeLayers=['closed-marker','closed-line'].filter(id=>map.getLayer(id));
-  const closeHit = closeLayers.length ? map.queryRenderedFeatures(e.point,{layers:closeLayers})[0] : null;
+  const closeHit = map.getLayer('closed-marker') ? map.queryRenderedFeatures(e.point,{layers:['closed-marker']})[0] : null;
   if(closeHit){ showClosurePopup(e); return; }
   // a rack is a small, deliberate target — it outranks whatever line or park sits under it
   const rackHit = map.getLayer('racks-pt') ? map.queryRenderedFeatures(e.point,{layers:['racks-pt']})[0] : null;
@@ -105,12 +104,13 @@ map.on('click', e => {
 function showClosurePopup(e){
   const c = (CLOSURES_META && CLOSURES_META.active && CLOSURES_META.active[0]) || {};
   const title = c.title || 'Cycling diversion';
-  const note = c.note || 'This stretch is closed to cyclists — follow on-site signage.';
-  const src = c.src ? `<span class="pk" style="opacity:.75">Source: ${esc(c.src)}</span>` : '';
-  const html=`<b><i class="sw" style="background:var(--closed)"></i>${esc(title)}</b><span class="pk">${esc(note)}</span>${src}`;
+  const note = c.note || 'This area is closed to cyclists — follow on-site signage.';
+  const link = c.url ? `<a class="pk-link" href="${esc(c.url)}" target="_blank" rel="noopener">Official diversion map ↗</a>`
+                     : (c.src ? `<span class="pk" style="opacity:.75">Source: ${esc(c.src)}</span>` : '');
+  const html=`<b><i class="sw" style="background:var(--closed)"></i>${esc(title)}</b><span class="pk">${esc(note)}</span>${link}`;
   new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'250px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
 }
-['pcn-line','cpn-line','rail-open','rail-closed','racks-pt','parks-fill','closed-line','closed-marker'].forEach(id=>{
+['pcn-line','cpn-line','rail-open','rail-closed','racks-pt','parks-fill','closed-marker'].forEach(id=>{
   map.on('mouseenter', id, () => map.getCanvas().style.cursor='pointer');
   map.on('mouseleave', id, () => map.getCanvas().style.cursor='');
 });
@@ -184,14 +184,10 @@ function addLayers(){
     layout:{'line-join':'round','line-cap':'round'}, paint:{'line-color':casing,'line-width':wCase,'line-opacity':0.9}});
   if(!map.getLayer('pcn-line')) map.addLayer({id:'pcn-line',type:'line',source:'pcn',filter:loopFilter(),
     layout:{'line-join':'round','line-cap':'round'}, paint:{'line-color':colorExpr,'line-width':wLine}});
-  // Cycling closures / diversions — drawn above the network as an alert: a red dashed "no cycling"
-  // line over the affected stretch + a 🚳 marker. Real OSM geometry (see build/build_closures.js).
+  // Cycling closures / diversions — an advisory marker (🚳), not a traced route: the official
+  // diversion map is a schematic and tracing its perimeter route onto OSM risks drawing it wrong,
+  // so we flag the closed area and link to the authoritative map (see build/build_closures.js).
   if(!map.getSource('closures')) map.addSource('closures',{type:'geojson',data:'data/closures.geojson'});
-  const closedCol = getVar('--closed') || (dark?'#F87171':'#DC2626');
-  const closuresVis = closuresVisible ? 'visible' : 'none';
-  if(!map.getLayer('closed-line')) map.addLayer({id:'closed-line',type:'line',source:'closures',filter:['==',['get','kind'],'closed'],
-    layout:{'line-join':'round','line-cap':'round','visibility':closuresVis},
-    paint:{'line-color':closedCol,'line-width':['interpolate',['linear'],['zoom'],11,2.6,16,5.5],'line-dasharray':[1.6,1.4],'line-opacity':0.95}});
 
   if(!map.getLayer('near-line')) map.addLayer({id:'near-line',type:'line',source:'nearest',filter:['==','$type','LineString'],
     paint:{'line-color': dark?'#EAF2ED':'#15211B','line-width':2,'line-dasharray':[1,2],'line-opacity':0.7}});
@@ -715,7 +711,7 @@ function toggleClosures(row){
   row.classList.toggle('off', !closuresVisible);
   row.querySelector('.sw').setAttribute('aria-pressed', String(closuresVisible));
   const v = closuresVisible ? 'visible' : 'none';
-  ['closed-line','closed-marker'].forEach(id=>{ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility',v); });
+  if(map.getLayer('closed-marker')) map.setLayoutProperty('closed-marker','visibility',v);
 }
 function ensureExtrasSep(){
   const body=$('lgBody'); if(!body || !body.children.length) return;
