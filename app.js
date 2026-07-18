@@ -261,30 +261,25 @@ function addLayers(){
 
   refreshNearestSource(); refreshTrackSource(); refreshRouteSource(); refreshWxSource();
 }
-// "No cycling" diversion sign — a crisp vector badge drawn to canvas (no glyph fetch, offline-safe,
-// legible at map size where the 🚳 emoji was not): white disc, red ring, a simple bike, red slash.
+// Soft caution marker — an amber rounded warning triangle with a white "!", drawn to canvas
+// (offline-safe). Gentler than a red "no cycling" prohibition; the closure detail is in the popup.
 function closureEnsureIcon(){
   if(map.hasImage('closed-ic')) return;
-  const dpr=3, size=44, r=18;
-  const red=getVar('--closed') || (isDark()?'#F87171':'#DC2626');
+  const dpr=3, size=38;
+  const amber='#F59E0B';
   const cv=document.createElement('canvas'); cv.width=cv.height=size*dpr;
   const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
-  const cx=size/2, cy=size/2;
-  // white disc with a soft drop shadow so it stands off the map
-  ctx.shadowColor='rgba(0,0,0,0.35)'; ctx.shadowBlur=4; ctx.shadowOffsetY=1.5;
-  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fillStyle='#ffffff'; ctx.fill();
+  const cx=size/2, cy=size/2, R=13;
+  const tp=[cx, cy-R+2], br=[cx+R-1, cy+R-4], bl=[cx-R+1, cy+R-4];
+  ctx.shadowColor='rgba(0,0,0,0.3)'; ctx.shadowBlur=4; ctx.shadowOffsetY=1.5;
+  ctx.beginPath(); ctx.moveTo(tp[0],tp[1]); ctx.lineTo(br[0],br[1]); ctx.lineTo(bl[0],bl[1]); ctx.closePath();
+  ctx.lineJoin='round'; ctx.lineWidth=4.5; ctx.strokeStyle=amber; ctx.stroke();   // round-join = soft corners
+  ctx.fillStyle=amber; ctx.fill();
   ctx.shadowColor='transparent';
-  // simple bicycle in slate
-  ctx.strokeStyle='#475569'; ctx.lineWidth=1.6; ctx.lineCap='round'; ctx.lineJoin='round';
-  const wy=cy+4, wr=4, lx=cx-6.5, rx=cx+6.5;
-  ctx.beginPath(); ctx.arc(lx,wy,wr,0,Math.PI*2); ctx.moveTo(rx+wr,wy); ctx.arc(rx,wy,wr,0,Math.PI*2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(lx,wy); ctx.lineTo(cx,wy); ctx.lineTo(cx-1.5,cy-3); ctx.lineTo(rx,wy);
-  ctx.moveTo(cx-1.5,cy-3); ctx.lineTo(cx+3,cy-3); ctx.stroke();   // top tube + handlebar
-  // red ring + prohibition slash
-  ctx.strokeStyle=red; ctx.lineWidth=3;
-  ctx.beginPath(); ctx.arc(cx,cy,r-1,0,Math.PI*2); ctx.stroke();
-  const s=(r-1)*Math.SQRT1_2;
-  ctx.beginPath(); ctx.moveTo(cx-s,cy-s); ctx.lineTo(cx+s,cy+s); ctx.lineWidth=3.4; ctx.stroke();
+  // white exclamation
+  ctx.fillStyle='#ffffff';
+  ctx.fillRect(cx-1.1, cy-4.5, 2.2, 6.2);
+  ctx.beginPath(); ctx.arc(cx, cy+4.4, 1.4, 0, Math.PI*2); ctx.fill();
   try{ map.addImage('closed-ic', ctx.getImageData(0,0,size*dpr,size*dpr), {pixelRatio:dpr}); }catch(e){}
 }
 // Rack markers are drawn to canvas rather than using map glyphs: no font fetch, so they stay

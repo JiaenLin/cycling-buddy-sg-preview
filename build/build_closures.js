@@ -26,9 +26,10 @@ const round = n => Number(n.toFixed(5));
 const MAP_URL = 'https://www.gardensbythebay.com.sg/content/dam/gbb-2021/image/about-us/media-room/2026/wetlands-by-the-bay/Diversion-map.pdf';
 const MARKER = [103.87314, 1.28262];   // "no cycling" sign on the closed waterfront promenade
 
-// The circled affected area (the Gardens by the Bay stretch of the Southern Ridges loop).
+// The affected stretch = the closed waterfront promenade only (the user's tight outline).
+// Keep this SMALL — over-marking implies open paths are shut. See build/DIVERSIONS.md.
 const RISK_LOOP = 3;
-const BB = { w:103.8648, s:1.2808, e:103.8745, n:1.2852 };
+const BB = { w:103.8660, s:1.2816, e:103.8739, n:1.2848 };
 const inBB = ([x,y]) => x>=BB.w && x<=BB.e && y>=BB.s && y<=BB.n;
 
 // Clip a segment to the bbox: keep runs of inside points, plus one adjacent boundary point each
