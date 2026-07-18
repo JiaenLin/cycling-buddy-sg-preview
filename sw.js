@@ -1,6 +1,6 @@
 /* Cycling Buddy SG PWA service worker — offline app shell + runtime basemap tile cache
    © 2026 Lin Jiaen · All rights reserved */
-const VERSION = 'cbsg-v12';
+const VERSION = 'cbsg-v13';
 const SHELL = VERSION + '-shell';
 const TILES = VERSION + '-tiles';
 const TILE_MAX = 800; // cap runtime tile cache entries
@@ -20,8 +20,13 @@ const SHELL_ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_ASSETS)).then(() => self.skipWaiting()));
+  // Precache and then WAIT (no auto-skipWaiting): the page shows an "update" pill and the user
+  // chooses when to switch, so a new version never reloads someone mid-ride.
+  e.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_ASSETS)));
 });
+
+// The page posts this when the user taps "refresh" on the update pill.
+self.addEventListener('message', e => { if(e.data === 'SKIP_WAITING') self.skipWaiting(); });
 
 self.addEventListener('activate', e => {
   e.waitUntil(

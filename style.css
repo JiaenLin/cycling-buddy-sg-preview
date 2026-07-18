@@ -265,6 +265,17 @@ body{
   font-size:13px;font-weight:600;box-shadow:var(--shadow);z-index:30;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:88vw;text-align:center;
 }
 .toast.show{opacity:1;transform:translate(-50%,0)}
+/* update pill — accent-coloured and tappable, so it reads as an action, not the neutral toast */
+.update-pill{
+  position:absolute;left:50%;top:calc(env(safe-area-inset-top) + 74px);transform:translate(-50%,-14px);
+  display:inline-flex;align-items:center;gap:8px;
+  background:var(--accent);color:var(--accent-ink);border:0;padding:10px 16px;border-radius:12px;
+  font-size:13px;font-weight:650;font-family:inherit;box-shadow:var(--shadow);z-index:31;cursor:pointer;
+  opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:88vw;
+}
+.update-pill.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.update-pill svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+.update-pill[hidden]{display:none}   /* author display: outranks the UA [hidden] rule */
 
 .pcn-popup .maplibregl-popup-content{background:var(--panel-solid);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);font-family:var(--ui);padding:9px 12px}
 .pcn-popup .maplibregl-popup-tip{border-top-color:var(--panel-solid);border-bottom-color:var(--panel-solid)}

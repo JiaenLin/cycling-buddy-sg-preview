@@ -1044,8 +1044,33 @@ $('installBtn').addEventListener('click', async ()=>{
 });
 window.addEventListener('appinstalled', ()=>{ $('installBtn').hidden=true; closeModal(); toast('Installed — find “Cycling Buddy” on your home screen'); ping('install'); });
 
-// ---------- service worker ----------
-if('serviceWorker' in navigator){ window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(()=>{})); }
+// ---------- service worker + update prompt ----------
+// A new version precaches in the background then waits; we surface a tappable pill so the rider
+// updates when they choose (never mid-route), then reload once the new worker takes control.
+if('serviceWorker' in navigator){
+  let userChoseUpdate = false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(userChoseUpdate) location.reload();   // reload only on an opted-in update, not the first install
+  });
+  const showUpdatePill = worker => {
+    const pill = $('updatePill'); if(!pill || pill._wired===worker) return;
+    pill._wired = worker;                     // guard: reg.waiting and updatefound can both fire
+    pill.hidden = false; requestAnimationFrame(()=>pill.classList.add('show'));
+    pill.onclick = ()=>{ userChoseUpdate = true; pill.classList.remove('show'); worker.postMessage('SKIP_WAITING'); };
+  };
+  window.addEventListener('load', async ()=>{
+    let reg; try{ reg = await navigator.serviceWorker.register('sw.js'); }catch(e){ return; }
+    if(reg.waiting && navigator.serviceWorker.controller) showUpdatePill(reg.waiting);   // update already downloaded
+    reg.addEventListener('updatefound', ()=>{
+      const nw = reg.installing; if(!nw) return;
+      nw.addEventListener('statechange', ()=>{
+        if(nw.state==='installed' && navigator.serviceWorker.controller) showUpdatePill(nw);   // controller present => update, not first install
+      });
+    });
+    // re-check when the app returns to the foreground, so a re-opened PWA finds updates promptly
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) reg.update().catch(()=>{}); });
+  });
+}
 
 // ---------- init ----------
 syncThemeIcon();
