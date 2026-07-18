@@ -23,9 +23,9 @@ const isDark = () => document.documentElement.getAttribute('data-theme') === 'da
 
 // ---------- state ----------
 let META=null, CPN_META=null, RAIL_META=null, PCN_FEATURES=[], mapLoaded=false, fitted=false;
-let PARKS_META=null, RACKS_META=null, RACK_FEATURES=[], nearRack=null;
+let PARKS_META=null, RACKS_META=null, RACK_FEATURES=[], nearRack=null, CLOSURES_META=null;
 const hidden = new Set();
-let cpnVisible = true, railVisible = true, parksVisible = true, racksVisible = true;
+let cpnVisible = true, railVisible = true, parksVisible = true, racksVisible = true, closuresVisible = true;
 let user=null, nearest=null, locActive=false;
 // routing
 let routeMode=false, graphReady=false, graphLoading=null;
@@ -71,6 +71,10 @@ map.on('load', () => { mapLoaded=true; tryFit(); });
 // tap-to-identify — prefer a park connector, fall back to a cycling path (handlers re-apply after a theme switch)
 map.on('click', e => {
   if(routeMode){ handleRouteClick([e.lngLat.lng, e.lngLat.lat]); return; }
+  // a closure alert outranks everything — it's the most important thing to surface if tapped
+  const closeLayers=['closed-marker','closed-line'].filter(id=>map.getLayer(id));
+  const closeHit = closeLayers.length ? map.queryRenderedFeatures(e.point,{layers:closeLayers})[0] : null;
+  if(closeHit){ showClosurePopup(e); return; }
   // a rack is a small, deliberate target — it outranks whatever line or park sits under it
   const rackHit = map.getLayer('racks-pt') ? map.queryRenderedFeatures(e.point,{layers:['racks-pt']})[0] : null;
   if(rackHit){ showRackPopup(e, rackHit); return; }
@@ -98,7 +102,15 @@ map.on('click', e => {
   }
   new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'240px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
 });
-['pcn-line','cpn-line','rail-open','rail-closed','racks-pt','parks-fill'].forEach(id=>{
+function showClosurePopup(e){
+  const c = (CLOSURES_META && CLOSURES_META.active && CLOSURES_META.active[0]) || {};
+  const title = c.title || 'Cycling diversion';
+  const note = c.note || 'This stretch is closed to cyclists — follow on-site signage.';
+  const src = c.src ? `<span class="pk" style="opacity:.75">Source: ${esc(c.src)}</span>` : '';
+  const html=`<b><i class="sw" style="background:var(--closed)"></i>${esc(title)}</b><span class="pk">${esc(note)}</span>${src}`;
+  new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'250px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
+}
+['pcn-line','cpn-line','rail-open','rail-closed','racks-pt','parks-fill','closed-line','closed-marker'].forEach(id=>{
   map.on('mouseenter', id, () => map.getCanvas().style.cursor='pointer');
   map.on('mouseleave', id, () => map.getCanvas().style.cursor='');
 });
@@ -172,6 +184,15 @@ function addLayers(){
     layout:{'line-join':'round','line-cap':'round'}, paint:{'line-color':casing,'line-width':wCase,'line-opacity':0.9}});
   if(!map.getLayer('pcn-line')) map.addLayer({id:'pcn-line',type:'line',source:'pcn',filter:loopFilter(),
     layout:{'line-join':'round','line-cap':'round'}, paint:{'line-color':colorExpr,'line-width':wLine}});
+  // Cycling closures / diversions — drawn above the network as an alert: a red dashed "no cycling"
+  // line over the affected stretch + a 🚳 marker. Real OSM geometry (see build/build_closures.js).
+  if(!map.getSource('closures')) map.addSource('closures',{type:'geojson',data:'data/closures.geojson'});
+  const closedCol = getVar('--closed') || (dark?'#F87171':'#DC2626');
+  const closuresVis = closuresVisible ? 'visible' : 'none';
+  if(!map.getLayer('closed-line')) map.addLayer({id:'closed-line',type:'line',source:'closures',filter:['==',['get','kind'],'closed'],
+    layout:{'line-join':'round','line-cap':'round','visibility':closuresVis},
+    paint:{'line-color':closedCol,'line-width':['interpolate',['linear'],['zoom'],11,2.6,16,5.5],'line-dasharray':[1.6,1.4],'line-opacity':0.95}});
+
   if(!map.getLayer('near-line')) map.addLayer({id:'near-line',type:'line',source:'nearest',filter:['==','$type','LineString'],
     paint:{'line-color': dark?'#EAF2ED':'#15211B','line-width':2,'line-dasharray':[1,2],'line-opacity':0.7}});
   if(!map.getLayer('near-pt')) map.addLayer({id:'near-pt',type:'circle',source:'nearest',filter:['==','$type','Point'],
@@ -222,7 +243,30 @@ function addLayers(){
       'icon-size':['interpolate',['linear'],['zoom'],13.5,0.42,16,0.62,18,0.72],
       'icon-allow-overlap':false,'icon-padding':1}});
 
+  // Closure marker (🚳) — always visible (no min-zoom) so the diversion is spotted island-wide.
+  closureEnsureIcon();
+  if(!map.getLayer('closed-marker')) map.addLayer({id:'closed-marker',type:'symbol',source:'closures',filter:['==',['get','kind'],'marker'],
+    layout:{visibility: closuresVisible?'visible':'none',
+      'icon-image':'closed-ic',
+      'icon-size':['interpolate',['linear'],['zoom'],10,0.5,14,0.85,17,1],
+      'icon-allow-overlap':true,'icon-ignore-placement':true}});
+
   refreshNearestSource(); refreshTrackSource(); refreshRouteSource(); refreshWxSource();
+}
+// 🚳 "no bicycles" marker on a red disc, drawn to canvas (no glyph fetch, offline-safe).
+function closureEnsureIcon(){
+  if(map.hasImage('closed-ic')) return;
+  const dpr=3, size=30, r=12;
+  const disc=getVar('--closed') || (isDark()?'#F87171':'#DC2626');
+  const cv=document.createElement('canvas'); cv.width=cv.height=size*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+  const cx=size/2, cy=size/2;
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.fillStyle='#ffffff'; ctx.fill();
+  ctx.lineWidth=2.4; ctx.strokeStyle=disc; ctx.stroke();
+  ctx.font='16px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('🚳', cx, cy+0.5);
+  try{ map.addImage('closed-ic', ctx.getImageData(0,0,size*dpr,size*dpr), {pixelRatio:dpr}); }catch(e){}
 }
 // Rack markers are drawn to canvas rather than using map glyphs: no font fetch, so they stay
 // crisp and keep working offline. Ids carry the theme because setStyle drops added images.
@@ -272,6 +316,7 @@ fetch('data/wx.zones.geojson').then(r=>r.json()).then(z=>{ ZONES=z; refreshWxSou
 fetch('data/parks.meta.json').then(r=>r.json()).then(m=>{ PARKS_META=m; appendParksRow(); }).catch(()=>{});
 fetch('data/racks.meta.json').then(r=>r.json()).then(m=>{ RACKS_META=m; appendRacksRow(); }).catch(()=>{});
 fetch('data/racks.points.geojson').then(r=>r.json()).then(g=>{ RACK_FEATURES=g.features; computeNearestRack(); updateRackUI(); }).catch(()=>{});
+fetch('data/closures.meta.json').then(r=>r.json()).then(m=>{ CLOSURES_META=m; appendClosuresRow(); }).catch(()=>{});
 
 function tryFit(){
   if(fitted || !mapLoaded || !META) return;
@@ -592,6 +637,7 @@ function buildLegend(){
   appendCpnRow();
   appendParksRow();
   appendRacksRow();
+  appendClosuresRow();
 }
 function appendParksRow(){
   if(!PARKS_META) return;
@@ -646,13 +692,38 @@ function toggleRacks(row){
   if(map.getLayer('racks-pt')) map.setLayoutProperty('racks-pt','visibility', racksVisible?'visible':'none');
   computeNearestRack(); updateRackUI();
 }
+function appendClosuresRow(){
+  if(!CLOSURES_META) return;
+  const body=$('lgBody'); if(!body.children.length) return;
+  if(body.querySelector('.lrow-closures')) return;
+  ensureExtrasSep();
+  const sc=$('sheetClosure'); if(sc) sc.textContent = (CLOSURES_META.active&&CLOSURES_META.active[0]) ? CLOSURES_META.active[0].name : '';
+  const row=document.createElement('div'); row.className='lrow lrow-closures';
+  row.innerHTML =
+    `<button class="sw" aria-pressed="true" aria-label="Toggle cycling diversions"><i style="background:var(--closed)"></i></button>`+
+    `<button class="meta" aria-label="Frame cycling diversions"><span class="name">Diversions</span><span class="km">Bay South</span></button>`+
+    `<button class="zoom" aria-label="Frame cycling diversions"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5"/></svg></button>`;
+  row.querySelector('.sw').addEventListener('click', ()=>toggleClosures(row));
+  const m=CLOSURES_META.marker;
+  const frame=()=>{ if(m) map.easeTo({center:m, zoom:15.2, duration:650}); };
+  row.querySelector('.meta').addEventListener('click', frame);
+  row.querySelector('.zoom').addEventListener('click', frame);
+  insertExtra(row, 'closures');
+}
+function toggleClosures(row){
+  closuresVisible=!closuresVisible;
+  row.classList.toggle('off', !closuresVisible);
+  row.querySelector('.sw').setAttribute('aria-pressed', String(closuresVisible));
+  const v = closuresVisible ? 'visible' : 'none';
+  ['closed-line','closed-marker'].forEach(id=>{ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility',v); });
+}
 function ensureExtrasSep(){
   const body=$('lgBody'); if(!body || !body.children.length) return;
   if(!body.querySelector('.lg-sep-x')){ const s=document.createElement('div'); s.className='lg-sep lg-sep-x'; body.appendChild(s); }
 }
 // Each extra layer arrives on its own fetch, so order by rank rather than arrival:
-// Rail Corridor · cycling paths · parks · bike parking.
-const EXTRA_RANK = {rail:1, cpn:2, parks:3, racks:4};
+// Rail Corridor · cycling paths · parks · bike parking · diversions.
+const EXTRA_RANK = {rail:1, cpn:2, parks:3, racks:4, closures:5};
 function insertExtra(row, key){
   const body=$('lgBody'); const rank=EXTRA_RANK[key];
   row.dataset.rank=rank;

@@ -1,0 +1,19 @@
+{
+  "count": 1,
+  "closed_m": 909,
+  "marker": [
+    103.87153,
+    1.28184
+  ],
+  "active": [
+    {
+      "name": "Gardens by the Bay — Bay South",
+      "title": "Cycling diversion — Bay South",
+      "note": "Waterfront Promenade closed to cyclists for the Bay South–Bay East bridge works. Detour around the Bay South perimeter and follow on-site signage.",
+      "from": "2026-05-04",
+      "until": "~2028",
+      "src": "gardensbythebay.com.sg"
+    }
+  ],
+  "source": "OpenStreetMap (geometry) + Gardens by the Bay notice"
+}

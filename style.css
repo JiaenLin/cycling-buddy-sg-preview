@@ -18,6 +18,7 @@
   --park:#2E8B57;
   --rack-fill:#1F2937;
   --rack-glyph:#FFFFFF;
+  --closed:#DC2626;
   --wx-storm:#6D28D9; --wx-heavy:#1D4ED8; --wx-rain:#0E7490; --wx-haze:#B45309; --wx-mist:#64748B; --wx-safe:#2E9E5B;
   --shadow:0 6px 20px rgba(18,32,24,.16), 0 1px 3px rgba(18,32,24,.10);
   --radius:16px;
@@ -42,6 +43,7 @@
   --park:#3FA96B;
   --rack-fill:#E2E8F0;
   --rack-glyph:#0E1613;
+  --closed:#F87171;
   --wx-storm:#A78BFA; --wx-heavy:#60A5FA; --wx-rain:#38BDF8; --wx-haze:#FBBF24; --wx-mist:#94A3B8; --wx-safe:#4ADE80;
   --shadow:0 8px 26px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4);
 }

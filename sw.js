@@ -1,6 +1,6 @@
 /* Cycling Buddy SG PWA service worker — offline app shell + runtime basemap tile cache
    © 2026 Lin Jiaen · All rights reserved */
-const VERSION = 'cbsg-v13';
+const VERSION = 'cbsg-v14';
 const SHELL = VERSION + '-shell';
 const TILES = VERSION + '-tiles';
 const TILE_MAX = 800; // cap runtime tile cache entries
@@ -13,6 +13,7 @@ const SHELL_ASSETS = [
   'data/rail.lines.geojson', 'data/rail.meta.json',
   'data/parks.polys.geojson', 'data/parks.meta.json',
   'data/racks.points.geojson', 'data/racks.meta.json',
+  'data/closures.geojson', 'data/closures.meta.json',
   'data/wx.zones.geojson',
   'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-192-maskable.png', 'icons/icon-512-maskable.png',
@@ -22,7 +23,11 @@ const SHELL_ASSETS = [
 self.addEventListener('install', e => {
   // Precache and then WAIT (no auto-skipWaiting): the page shows an "update" pill and the user
   // chooses when to switch, so a new version never reloads someone mid-ride.
-  e.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_ASSETS)));
+  // {cache:'reload'} forces each asset from the network, not the HTTP cache — otherwise a version
+  // bump can precache stale files and ship a half-updated app.
+  e.waitUntil(caches.open(SHELL).then(c => c.addAll(
+    SHELL_ASSETS.map(u => new Request(u, {cache: 'reload'}))
+  )));
 });
 
 // The page posts this when the user taps "refresh" on the update pill.
