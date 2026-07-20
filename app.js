@@ -23,7 +23,7 @@ const isDark = () => document.documentElement.getAttribute('data-theme') === 'da
 
 // ---------- state ----------
 let META=null, CPN_META=null, RAIL_META=null, PCN_FEATURES=[], mapLoaded=false, fitted=false;
-let PARKS_META=null, RACKS_META=null, RACK_FEATURES=[], nearRack=null, CLOSURES_META=null;
+let PARKS_META=null, RACKS_META=null, RACK_FEATURES=[], nearRack=null, CLOSURES_META=null, POI=[];
 const hidden = new Set();
 let cpnVisible = true, railVisible = true, parksVisible = true, racksVisible = true, closuresVisible = true;
 let user=null, nearest=null, locActive=false;
@@ -31,10 +31,10 @@ let user=null, nearest=null, locActive=false;
 let routeMode=false, graphReady=false, graphLoading=null;
 let routeStart=null, routeEnd=null, routeResult=null, mkStart=null, mkEnd=null;
 let routeOptions=null, routeSel='max';
-let recording=false, track=[], recDist=0, recStart=0, recTimer=null, lastPt=null;
+let recording=false, track=[], recDist=0, recStart=0, recStartEpoch=0, recTimer=null, lastPt=null;
 let pendingUpdateWorker=null, renderPendingUpdate=null;
 // compass / heading-follow ("face direction") mode
-let headingMode=false, deviceHeading=null, deviceHeadingTs=0, camRAF=null;
+let headingMode=false, deviceHeading=null, deviceHeadingTs=0, camRAF=null, navStage=0; // navStage: 0 off · 1 facing (zoom-in) · 2 overview (zoom-out + route arrows)
 const camTarget={center:null, bearing:null};
 // weather (NEA 2-hour forecast)
 let WX=null, wxLoading=null, wxVisible=false, ZONES=null;
@@ -67,7 +67,7 @@ geo.on('trackuserlocationstart', () => setLocActive(true));
 geo.on('trackuserlocationend', () => setLocActive(false));
 
 map.on('style.load', addLayers);          // fires on first load and after every setStyle
-map.on('load', () => { mapLoaded=true; tryFit(); });
+map.on('load', () => { mapLoaded=true; tryFit(); resumeRec(); });
 
 // tap-to-identify — prefer a park connector, fall back to a cycling path (handlers re-apply after a theme switch)
 function onMapClick(e){
@@ -220,6 +220,15 @@ function addLayers(){
     layout:{'line-join':'round','line-cap':'round'}, paint:{
       'line-color':['match',['get','kind'], 'road', ROUTE_ROAD, 'foot', ROUTE_FOOT, getVar('--accent')],
       'line-width':['interpolate',['linear'],['zoom'],11,3.5,16,7.5]}});
+  // direction arrowheads along the route, shown in navigation overview (nav stage 2)
+  if(!map.hasImage('nav-arrow')){
+    const s=20, cv=document.createElement('canvas'); cv.width=cv.height=s; const cx=cv.getContext('2d');
+    cx.fillStyle=dark?'#eaf2ef':'#04202e'; cx.beginPath(); cx.moveTo(s*0.30,s*0.16); cx.lineTo(s*0.84,s*0.5); cx.lineTo(s*0.30,s*0.84); cx.closePath(); cx.fill();
+    try{ map.addImage('nav-arrow', cx.getImageData(0,0,s,s), {pixelRatio:2}); }catch(_){}
+  }
+  if(!map.getLayer('route-arrows')) map.addLayer({id:'route-arrows',type:'symbol',source:'route',
+    layout:{'symbol-placement':'line','symbol-spacing':64,'icon-image':'nav-arrow','icon-size':0.85,
+      'icon-rotation-alignment':'map','icon-allow-overlap':true,'icon-ignore-placement':true,'visibility':'none'}});
 
   // Weather overlay (NEA 2-hour forecast) — rain ZONES: slate→violet fills over wet areas + weather icons; dry areas stay clean
   wxEnsureIcons();
@@ -332,6 +341,15 @@ fetch('data/cpn.meta.json').then(r=>r.json()).then(m=>{ CPN_META=m; appendCpnRow
 fetch('data/rail.meta.json').then(r=>r.json()).then(m=>{ RAIL_META=m; appendRailRow(); });
 fetch('data/wx.zones.geojson').then(r=>r.json()).then(z=>{ ZONES=z; refreshWxSource(); }).catch(()=>{});
 fetch('data/parks.meta.json').then(r=>r.json()).then(m=>{ PARKS_META=m; appendParksRow(); }).catch(()=>{});
+// Offline POI index for route search-by-name: named parks & reserves with a rough centroid.
+function polyCentroid(geom){
+  const rings = geom.type==='Polygon' ? geom.coordinates : geom.type==='MultiPolygon' ? geom.coordinates.flat() : [];
+  let sx=0, sy=0, n=0; for(const ring of rings) for(const c of ring){ sx+=c[0]; sy+=c[1]; n++; }
+  return n ? [sx/n, sy/n] : null;
+}
+fetch('data/parks.polys.geojson').then(r=>r.json()).then(g=>{
+  POI = g.features.map(f=>{ const c=f.properties&&f.properties.name ? polyCentroid(f.geometry) : null; return c ? {name:f.properties.name, lng:c[0], lat:c[1]} : null; }).filter(Boolean);
+}).catch(()=>{});
 fetch('data/racks.meta.json').then(r=>r.json()).then(m=>{ RACKS_META=m; appendRacksRow(); }).catch(()=>{});
 fetch('data/racks.points.geojson').then(r=>r.json()).then(g=>{ RACK_FEATURES=g.features; computeNearestRack(); updateRackUI(); }).catch(()=>{});
 fetch('data/closures.meta.json').then(r=>r.json()).then(m=>{ CLOSURES_META=m; appendClosuresRow(); }).catch(()=>{});
@@ -353,6 +371,7 @@ function onPos(e){
   loadWeather(); updateWxUI();   // forecast for the area you're now in (throttled fetch)
   if(recording) pushTrack(user, e.timestamp);
   if(headingMode){ camTarget.center=[user.lng,user.lat]; const b=currentHeading(); if(b!=null) camTarget.bearing=b; }
+  if(navActive) liveGuidance();
 }
 function computeNearest(){
   if(!user || !PCN_FEATURES.length){ nearest=null; return; }
@@ -600,7 +619,7 @@ function pushTrack(u, ts){
   const t = ts || Date.now();
   if(lastPt){ const d=haversine(lastPt.lat,lastPt.lng,u.lat,u.lng); if(d>1.5 && d<80) recDist+=d; }
   track.push([u.lng,u.lat]); lastPt={lat:u.lat,lng:u.lng};
-  refreshTrackSource(); updateRecUI();
+  refreshTrackSource(); updateRecUI(); persistRec();
 }
 function refreshTrackSource(){
   const src = map.getSource && map.getSource('track'); if(!src) return;
@@ -617,14 +636,14 @@ function updateRecUI(){
 }
 function startRec(){
   if(!locActive) geo.trigger();
-  recording=true; track=[]; recDist=0; lastPt=null; recStart=performance.now();
+  recording=true; track=[]; recDist=0; lastPt=null; recStart=performance.now(); recStartEpoch=Date.now();
   const update=$('updatePill'); if(update && !update.hidden){ update.classList.remove('show'); update.hidden=true; }
   $('recBtn').classList.add('active'); $('recBtn').setAttribute('aria-label','Stop recording');
   show('viewRec'); setDock(false);
   recTimer=setInterval(()=>{ track.length ? updateRecUI() : ($('recTime').textContent=fmtTime((performance.now()-recStart)/1000)); }, 1000);
 }
 function stopRec(){
-  recording=false; clearInterval(recTimer);
+  recording=false; clearInterval(recTimer); try{ localStorage.removeItem('rec'); }catch(e){}
   $('recBtn').classList.remove('active'); $('recBtn').setAttribute('aria-label','Record a ride');
   const el=(performance.now()-recStart)/1000;
   $('sumDist').textContent=(recDist/1000).toFixed(2);
@@ -636,6 +655,20 @@ function stopRec(){
 function buildGPX(){
   const pts=track.map(p=>`<trkpt lat="${p[1].toFixed(6)}" lon="${p[0].toFixed(6)}"></trkpt>`).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Cycling Buddy SG" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>PCN ride ${new Date().toISOString().slice(0,10)}</name><trkseg>${pts}</trkseg></trk></gpx>`;
+}
+// Crash-safe recording: persist the live track so a reload / mobile tab-eviction never loses a ride.
+function persistRec(){ if(!recording) return; try{ localStorage.setItem('rec', JSON.stringify({v:1, track, recDist, recStartEpoch})); }catch(e){} }
+function resumeRec(){
+  let s; try{ s=JSON.parse(localStorage.getItem('rec')||'null'); }catch(e){ s=null; }
+  if(!s || !Array.isArray(s.track) || s.track.length<2 || (Date.now()-(s.recStartEpoch||0))>864e5){ try{ localStorage.removeItem('rec'); }catch(e){} return; }
+  recording=true; track=s.track; recDist=s.recDist||0; recStartEpoch=s.recStartEpoch||Date.now();
+  recStart=performance.now()-Math.max(0, Date.now()-recStartEpoch);   // keep elapsed continuous across the reload
+  const last=track[track.length-1]; lastPt={lng:last[0], lat:last[1]};
+  $('recBtn').classList.add('active'); $('recBtn').setAttribute('aria-label','Stop recording');
+  show('viewRec'); setDock(false); refreshTrackSource(); updateRecUI();
+  recTimer=setInterval(()=>{ track.length ? updateRecUI() : ($('recTime').textContent=fmtTime((performance.now()-recStart)/1000)); persistRec(); }, 1000);
+  if(!locActive) geo.trigger();
+  toast('Recovered your ride after a reload');
 }
 
 // ---------- legend ----------
@@ -922,6 +955,7 @@ function currentHeading(){
   return null;
 }
 function updateCompassIcon(){ const n=$('compassNeedle'); if(n) n.style.transform='rotate('+(-map.getBearing())+'deg)'; }
+function setNavArrows(show){ if(map.getLayer && map.getLayer('route-arrows')) map.setLayoutProperty('route-arrows','visibility',(show && routeResult)?'visible':'none'); }
 function camLoop(){
   if(!headingMode){ camRAF=null; return; }
   const c=map.getCenter(), curB=map.getBearing(), curZ=map.getZoom();
@@ -934,7 +968,7 @@ function camLoop(){
   camRAF=requestAnimationFrame(camLoop);
 }
 function enterHeading(){
-  headingMode=true;
+  headingMode=true; navStage=1;
   const btn=$('headingBtn'); btn.classList.add('active'); btn.setAttribute('aria-pressed','true');
   map.touchZoomRotate.disableRotation();               // two-finger = zoom only while following; avoids fighting the compass
   if(!locActive) geo.trigger();                          // ensure GPS + the user dot/heading beam
@@ -955,12 +989,14 @@ function exitHeading(reset){
   if(camRAF){ cancelAnimationFrame(camRAF); camRAF=null; }
   camTarget.center=camTarget.bearing=camTarget.zoom=null;
   if(reset!==false) map.easeTo({bearing:0, pitch:0, duration:500});
+  navStage=0; setNavArrows(false);
   updateCompassIcon();
 }
 $('headingBtn').addEventListener('click', ()=>{
-  if(headingMode){ exitHeading(true); return; }
-  if(Math.abs(normBearing(map.getBearing()))>2){ map.easeTo({bearing:0, pitch:0, duration:500}); return; } // straighten a hand-rotated map first
-  enterHeading();
+  if(navStage===1){ navStage=2; camTarget.zoom=14.2; setNavArrows(true); toast('Overview — arrows show the way ahead'); return; } // 2nd tap: zoom out + route arrows
+  if(navStage===2){ exitHeading(true); return; }                                                                // 3rd tap: off (resets navStage)
+  if(Math.abs(normBearing(map.getBearing()))>2){ map.easeTo({bearing:0, pitch:0, duration:500}); return; }      // straighten a hand-rotated map first
+  enterHeading();                                                                                               // 1st tap: face direction + zoom in
 });
 map.on('rotate', updateCompassIcon);
 map.on('dragstart',   e=>{ if(headingMode && e.originalEvent) exitHeading(false); }); // a manual pan drops out of follow
@@ -1019,7 +1055,13 @@ function computeRoute(){
   ensureGraph().then(ok=>{
     if(!ok) return;
     const two=Router.routeTwo(routeStart,routeEnd);
-    if(!two){ routeOptions=null; routeResult=null; toast('No route found between those points'); hideOptions(); refreshRouteSource(); updateRtButtons(); return; }
+    if(!two){
+      routeOptions=null; routeResult=null;
+      const sN=Router.nearestNode(routeStart), eN=Router.nearestNode(routeEnd);
+      const tooFar = !sN || !eN || sN.dist>Router.MAX_SNAP || eN.dist>Router.MAX_SNAP;
+      toast(tooFar ? 'No cycling path near there — tap closer to a route' : 'No route found between those points');
+      hideOptions(); refreshRouteSource(); updateRtButtons(); return;
+    }
     routeOptions=two; renderOptions(two); selectRouteOption('max', true); setDock(false); ping('route-planned');
     if(routeResult && routeResult.hasCarWay) toast('Heads up: this route uses roads — wear a helmet (required on Singapore roads).');
   });
@@ -1077,7 +1119,73 @@ function updateRtButtons(){
   $('rtClrBtn').hidden = !(routeStart||routeEnd);
   $('rtRevBtn').hidden = !(routeStart&&routeEnd);
   $('rtGpxBtn').hidden = !routeResult;
+  $('rtImgBtn').hidden = !routeResult;
+  $('rtGoBtn').hidden = !routeResult;
 }
+// ---------- live turn-by-turn navigation ----------
+let navActive=false, offRouteCount=0;
+function bearingDeg(a,b){ const y=Math.sin((b[0]-a[0])*D2R)*Math.cos(b[1]*D2R); const x=Math.cos(a[1]*D2R)*Math.sin(b[1]*D2R)-Math.sin(a[1]*D2R)*Math.cos(b[1]*D2R)*Math.cos((b[0]-a[0])*D2R); return (Math.atan2(y,x)/D2R+360)%360; }
+function projectOnRoute(ll, coords){
+  const kx=Math.cos(ll[1]*D2R)*111320, ky=110540, px=ll[0]*kx, py=ll[1]*ky;
+  let best={dist:Infinity,i:0,t:0};
+  for(let i=0;i<coords.length-1;i++){
+    const ax=coords[i][0]*kx, ay=coords[i][1]*ky, bx=coords[i+1][0]*kx, by=coords[i+1][1]*ky;
+    const dx=bx-ax, dy=by-ay, L2=dx*dx+dy*dy;
+    const t=L2?Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/L2)):0;
+    const d=Math.hypot(px-(ax+t*dx), py-(ay+t*dy));
+    if(d<best.dist) best={dist:d,i,t};
+  }
+  return best;
+}
+function nextTurn(coords, proj){
+  let cur=bearingDeg(coords[proj.i], coords[proj.i+1]);
+  let acc=(1-proj.t)*haversine(coords[proj.i][1],coords[proj.i][0],coords[proj.i+1][1],coords[proj.i+1][0]);
+  for(let j=proj.i+1;j<coords.length-1;j++){
+    const b2=bearingDeg(coords[j],coords[j+1]); let turn=b2-cur; while(turn>180)turn-=360; while(turn<-180)turn+=360;
+    if(Math.abs(turn)>=32) return {dist:acc, text:(Math.abs(turn)>=115?(turn<0?'Sharp left':'Sharp right'):(turn<0?'Turn left':'Turn right'))};
+    acc+=haversine(coords[j][1],coords[j][0],coords[j+1][1],coords[j+1][0]); cur=b2;
+  }
+  return null;
+}
+function setNavBanner(main, sub){ const el=$('navBanner'); if(!el) return; el.hidden=false; el.querySelector('.nav-main').textContent=main; el.querySelector('.nav-sub').textContent=sub||''; }
+function liveGuidance(){
+  if(!navActive || !routeResult || !user) return;
+  const coords=routeResult.coords; if(!coords || coords.length<2) return;
+  const proj=projectOnRoute([user.lng,user.lat], coords);
+  if(proj.dist>45){ if(++offRouteCount>=3){ offRouteCount=0; navReroute(); } else setNavBanner('Off route','head back to the highlighted line'); return; }
+  offRouteCount=0;
+  const end=coords[coords.length-1], dEnd=haversine(user.lat,user.lng,end[1],end[0]);
+  if(dEnd<30){ setNavBanner('You’ve arrived 🎉',''); navActive=false; const b=$('rtGoBtn'); if(b) b.textContent='Go'; return; }
+  const nt=nextTurn(coords, proj);
+  if(nt && nt.dist<dEnd+50) setNavBanner(nt.text,'in '+Math.round(nt.dist)+' m');
+  else setNavBanner('Continue',Math.round(dEnd)+' m to go');
+}
+function navReroute(){
+  if(!routeEnd || !user) return;
+  toast('Off route — rerouting');
+  ensureGraph().then(ok=>{ if(!ok) return;
+    const two=Router.routeTwo([user.lng,user.lat], routeEnd); if(!two) return;
+    routeStart=[user.lng,user.lat]; routeOptions=two; routeResult=two[routeSel]||two.max;
+    refreshRouteSource(); renderDirs(routeResult.directions); updateRtButtons(); setNavArrows(navStage===2);
+  });
+}
+function startNav(){ if(!routeResult) return; navActive=true; offRouteCount=0; if(!locActive) geo.trigger(); $('rtGoBtn').textContent='End'; setNavBanner('Starting…',''); toast('Navigation on'); if(user) liveGuidance(); }
+function stopNav(){ navActive=false; const b=$('rtGoBtn'); if(b) b.textContent='Go'; const el=$('navBanner'); if(el) el.hidden=true; }
+$('rtGoBtn').addEventListener('click', ()=> navActive?stopNav():startNav());
+$('rtSearch').addEventListener('input', ()=>{
+  const q=$('rtSearch').value.trim().toLowerCase(), box=$('rtResults');
+  if(q.length<2){ box.hidden=true; box.innerHTML=''; return; }
+  const hits=POI.filter(p=>p.name.toLowerCase().includes(q)).slice(0,6);
+  box._hits=hits; box.innerHTML=hits.map((p,i)=>`<button class="rt-result" data-i="${i}">${esc(p.name)}</button>`).join('');
+  box.hidden=!hits.length;
+});
+$('rtResults').addEventListener('click', e=>{
+  const b=e.target.closest('.rt-result'); if(!b) return;
+  const p=($('rtResults')._hits||[])[+b.dataset.i]; if(!p) return;
+  const ll=[p.lng,p.lat]; $('rtSearch').value=''; $('rtResults').hidden=true; $('rtResults').innerHTML='';
+  if(!routeStart){ setPoint('start',ll); rtHint('Now search or tap your destination.'); updateRtButtons(); }
+  else { setPoint('end',ll); computeRoute(); }   // sets destination and routes
+});
 $('routeBtn').addEventListener('click', ()=> routeMode?exitRoute():enterRoute());
 $('routeClose').addEventListener('click', exitRoute);
 $('rtLocBtn').addEventListener('click', ()=>{
@@ -1089,7 +1197,7 @@ $('rtRevBtn').addEventListener('click', ()=>{
   if(!routeStart||!routeEnd) return;
   const a=routeStart, b=routeEnd; clearRoutePoints(); setPoint('start',b); setPoint('end',a); computeRoute();
 });
-$('rtClrBtn').addEventListener('click', ()=>{ clearRoutePoints(); routeResult=null; routeOptions=null; refreshRouteSource(); hideOptions(); rtHint('Tap the map to set your start.'); updateRtButtons(); });
+$('rtClrBtn').addEventListener('click', ()=>{ stopNav(); clearRoutePoints(); routeResult=null; routeOptions=null; refreshRouteSource(); hideOptions(); rtHint('Tap the map to set your start.'); updateRtButtons(); });
 $('rtGpxBtn').addEventListener('click', ()=>{
   if(!routeResult) return;
   try{
@@ -1145,6 +1253,53 @@ function toast(msg){ toastEl.textContent=msg; toastEl.classList.add('show'); cle
 
 // ---------- analytics (GoatCounter events; no-ops offline or if blocked) ----------
 function ping(name){ try{ if(window.goatcounter && goatcounter.count) goatcounter.count({path:name, title:name, event:true}); }catch(e){} }
+// Shareable branded card: the route/ride shape + stats on a self-contained PNG (no basemap tiles,
+// so no attribution concern in the shared image). GPX stays for power users; this is for social.
+function drawRideCard(coords, meta){
+  const S=1080, pad=96, cv=document.createElement('canvas'); cv.width=cv.height=S; const g=cv.getContext('2d');
+  const dark=document.documentElement.getAttribute('data-theme')==='dark' || (!document.documentElement.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+  const bg=dark?'#0e1613':'#f4f7f5', ink=dark?'#eaf2ef':'#0e1613', dim=dark?'#9fb3ab':'#5b6b64', accent=getVar('--accent')||'#12b886';
+  g.fillStyle=bg; g.fillRect(0,0,S,S); g.fillStyle=accent; g.fillRect(0,0,S,12);
+  g.textAlign='left'; g.fillStyle=ink; g.font='700 48px system-ui,-apple-system,sans-serif'; g.fillText('Cycling Buddy SG', pad, 108);
+  g.fillStyle=dim; g.font='500 28px system-ui,sans-serif'; g.fillText(meta.subtitle||'Singapore', pad, 150);
+  const boxY=196, boxH=548, boxW=S-2*pad;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  for(const c of coords){ if(c[0]<minX)minX=c[0]; if(c[0]>maxX)maxX=c[0]; if(c[1]<minY)minY=c[1]; if(c[1]>maxY)maxY=c[1]; }
+  const kx=Math.cos((minY+maxY)/2*Math.PI/180);
+  const wX=Math.max(1e-6,(maxX-minX)*kx), wY=Math.max(1e-6,maxY-minY), scale=Math.min(boxW/wX, boxH/wY)*0.88;
+  const offX=pad+(boxW-wX*scale)/2, offY=boxY+(boxH-wY*scale)/2;
+  const X=c=>offX+(c[0]-minX)*kx*scale, Y=c=>offY+(maxY-c[1])*scale;
+  g.strokeStyle=accent; g.lineWidth=11; g.lineJoin='round'; g.lineCap='round';
+  g.beginPath(); coords.forEach((c,i)=> i?g.lineTo(X(c),Y(c)):g.moveTo(X(c),Y(c))); g.stroke();
+  const dot=(c,col)=>{ g.beginPath(); g.arc(X(c),Y(c),13,0,7); g.fillStyle=col; g.fill(); g.lineWidth=4; g.strokeStyle=bg; g.stroke(); };
+  dot(coords[0],'#22B573'); dot(coords[coords.length-1], getVar('--rec')||'#e02749');
+  g.fillStyle=ink; g.font='800 96px system-ui,sans-serif'; g.fillText(meta.big, pad, 872);
+  g.fillStyle=dim; g.font='500 32px system-ui,sans-serif'; g.fillText(meta.line, pad, 924);
+  g.fillStyle=dim; g.font='500 26px system-ui,sans-serif'; g.fillText('jiaenlin.github.io/cycling-buddy-sg', pad, S-64);
+  return cv;
+}
+function shareImage(coords, meta, filename){
+  if(!coords || coords.length<2){ toast('Nothing to share yet'); return; }
+  ping('share-image');
+  drawRideCard(coords, meta).toBlob(async blob=>{
+    if(!blob){ toast('Could not make the image'); return; }
+    const file=new File([blob], filename, {type:'image/png'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{ await navigator.share({files:[file], title:'Cycling Buddy SG', text:meta.share||'Cycling Buddy SG'}); return; }catch(e){ if(e && e.name==='AbortError') return; }
+    }
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+    toast('Image saved');
+  }, 'image/png');
+}
+$('imgBtn').addEventListener('click', ()=> shareImage(track, {
+  subtitle:'Ride · '+new Date().toLocaleDateString(), big:(recDist/1000).toFixed(2)+' km',
+  line:$('sumTime').textContent+' · '+$('sumAvg').textContent+' km/h avg', share:'My ride on Cycling Buddy SG 🚴'
+}, 'cycling-buddy-ride.png'));
+$('rtImgBtn').addEventListener('click', ()=> routeResult && shareImage(routeResult.coords, {
+  subtitle:'Planned route · Singapore', big:(routeResult.meters/1000).toFixed(1)+' km',
+  line:Math.round(100*routeResult.cyclingPct)+'% cycling · '+Math.round(100*routeResult.pcnMeters/Math.max(1,routeResult.meters))+'% park connector',
+  share:'My planned ride on Cycling Buddy SG 🚴'
+}, 'cycling-buddy-route.png'));
 
 // ---------- share ----------
 const SHARE_URL = 'https://jiaenlin.github.io/cycling-buddy-sg/';

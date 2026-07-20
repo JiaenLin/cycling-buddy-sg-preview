@@ -114,6 +114,32 @@ test('keeps a planned route through stray taps, drag-edits endpoints, and only c
   expect(errors).toEqual([]);
 });
 
+test('hides route controls until a route exists and reports no nearby path for far taps', async ({ page }) => {
+  const errors = await openArtifact(page);
+  await page.getByRole('button', { name: 'Plan a route' }).click();
+  // Reverse/Clear/GPX, the road notice, the key and the options must not leak before a route exists.
+  for (const id of ['#rtRevBtn', '#rtClrBtn', '#rtGpxBtn', '#rtKey', '#rtNotice', '#rtOptions'])
+    await expect(page.locator(id)).toBeHidden();
+  // A tap far from any routable path reports no nearby path, not a misleading route.
+  await page.evaluate(() => { handleRouteClick([103.8000, 1.3000]); handleRouteClick([104.6000, 1.2000]); });
+  await expect(page.locator('#toast')).toContainText('No cycling path near there', { timeout: 40000 });
+  expect(errors).toEqual([]);
+});
+
+test('navigation overview reveals route direction arrows on demand', async ({ page }) => {
+  const errors = await openArtifact(page);
+  await expect.poll(() => page.evaluate(() => Boolean(map.getLayer('route-arrows')))).toBe(true);
+  await expect.poll(() => page.evaluate(() => map.getLayoutProperty('route-arrows', 'visibility'))).toBe('none');
+  await page.getByRole('button', { name: 'Plan a route' }).click();
+  await page.evaluate(() => { handleRouteClick([103.7859, 1.4370]); handleRouteClick([103.9040, 1.4043]); });
+  await expect.poll(() => page.evaluate(() => Boolean(routeResult))).toBe(true);
+  await page.evaluate(() => setNavArrows(true));
+  await expect.poll(() => page.evaluate(() => map.getLayoutProperty('route-arrows', 'visibility'))).toBe('visible');
+  await page.evaluate(() => setNavArrows(false));
+  await expect.poll(() => page.evaluate(() => map.getLayoutProperty('route-arrows', 'visibility'))).toBe('none');
+  expect(errors).toEqual([]);
+});
+
 test('records location updates and generates a local GPX file', async ({ page }) => {
   const errors = await openArtifact(page);
   await page.waitForFunction(() => document.querySelectorAll('#lgBody .lrow').length >= 7);
@@ -130,6 +156,72 @@ test('records location updates and generates a local GPX file', async ({ page })
   expect(gpx).toContain('<gpx version="1.1"');
   expect(gpx.match(/<trkpt /g)).toHaveLength(2);
   expect(gpx).toContain('lat="1.300100" lon="103.800100"');
+  expect(errors).toEqual([]);
+});
+
+test('live navigation guides along a route and reroutes when off it', async ({ page }) => {
+  const errors = await openArtifact(page);
+  await page.getByRole('button', { name: 'Plan a route' }).click();
+  await page.evaluate(() => { handleRouteClick([103.7859, 1.4370]); handleRouteClick([103.9040, 1.4043]); });
+  await expect.poll(() => page.evaluate(() => Boolean(routeResult))).toBe(true);
+  // start nav and feed a position on the route -> the guidance banner appears
+  await page.evaluate(() => {
+    setLocActive(true); startNav();
+    const c = routeResult.coords[Math.floor(routeResult.coords.length / 3)];
+    onPos({ coords: { latitude: c[1], longitude: c[0], accuracy: 5, speed: 4 }, timestamp: 1_000 });
+  });
+  await expect(page.locator('#navBanner')).toBeVisible();
+  // feed positions well off the route -> after a few, it reroutes from the current position
+  await page.evaluate(async () => {
+    await ensureGraph();
+    for (let k = 0; k < 4; k++) onPos({ coords: { latitude: 1.3200, longitude: 103.8300, accuracy: 5, speed: 4 }, timestamp: 2_000 + k });
+  });
+  await expect.poll(() => page.evaluate(() => Math.abs(routeStart[0] - 103.83) < 0.02)).toBe(true);
+  await page.evaluate(() => stopNav());
+  await expect(page.locator('#navBanner')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('offline POI search sets a route destination by name', async ({ page }) => {
+  const errors = await openArtifact(page);
+  await page.waitForFunction(() => Array.isArray(POI) && POI.length > 50);
+  await page.getByRole('button', { name: 'Plan a route' }).click();
+  const q = await page.evaluate(() => POI[0].name.slice(0, 4).toLowerCase());
+  await page.fill('#rtSearch', q);
+  await expect(page.locator('#rtResults .rt-result').first()).toBeVisible();
+  await page.evaluate(() => handleRouteClick([103.8000, 1.3000]));  // set start by tap
+  await page.locator('#rtResults .rt-result').first().click();       // pick a park as destination
+  await expect.poll(() => page.evaluate(() => Boolean(routeEnd))).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('renders a shareable route image (PNG)', async ({ page }) => {
+  const errors = await openArtifact(page);
+  await page.getByRole('button', { name: 'Plan a route' }).click();
+  await page.evaluate(() => { handleRouteClick([103.7859, 1.4370]); handleRouteClick([103.9040, 1.4043]); });
+  await expect.poll(() => page.evaluate(() => Boolean(routeResult))).toBe(true);
+  await expect(page.locator('#rtImgBtn')).toBeVisible();
+  const head = await page.evaluate(() => drawRideCard(routeResult.coords, { subtitle: 't', big: '21 km', line: 'test' }).toDataURL('image/png').slice(0, 22));
+  expect(head).toContain('data:image/png');
+  expect(errors).toEqual([]);
+});
+
+test('an in-progress ride survives a reload (crash recovery)', async ({ page }) => {
+  const errors = await openArtifact(page);
+  await page.evaluate(() => {
+    setLocActive(true); startRec();
+    onPos({ coords: { latitude: 1.3000, longitude: 103.8000, accuracy: 5, speed: 4 }, timestamp: 1_000 });
+    onPos({ coords: { latitude: 1.3005, longitude: 103.8005, accuracy: 5, speed: 4 }, timestamp: 2_000 });
+  });
+  // the live track was persisted...
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('rec') || 'null')?.track.length)).toBeGreaterThanOrEqual(2);
+  // ...so after losing in-memory state (a reload), resumeRec restores the ride instead of dropping it.
+  await page.evaluate(() => { clearInterval(recTimer); recording = false; track = []; recDist = 0; resumeRec(); });
+  await expect(page.locator('#viewRec')).toBeVisible();
+  expect(await page.evaluate(() => recording)).toBe(true);
+  expect(await page.evaluate(() => track.length)).toBeGreaterThanOrEqual(2);
+  await page.evaluate(() => stopRec());
+  expect(await page.evaluate(() => localStorage.getItem('rec'))).toBeNull();
   expect(errors).toEqual([]);
 });
 
