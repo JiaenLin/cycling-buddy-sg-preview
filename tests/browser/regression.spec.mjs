@@ -409,6 +409,19 @@ test('the FAB stack stays minimal until GO reveals Compass and Record', async ({
   expect(errors).toEqual([]);
 });
 
+test('the locate FAB exits location mode in one tap, even after panning to background', async ({ page }) => {
+  const errors = await openArtifact(page);
+  const state = () => page.evaluate(() => geo._watchState);
+  await page.getByRole('button', { name: 'Find my location' }).click();
+  await expect.poll(state).toBe('ACTIVE_LOCK');                       // located and following
+  // simulate the rider panning away — MapLibre drops to BACKGROUND, where a tap used to only re-lock
+  await page.evaluate(() => { geo._watchState = 'BACKGROUND'; });
+  await page.getByRole('button', { name: 'Find my location' }).click();
+  await expect.poll(state).toBe('OFF');                              // one tap fully exits, no re-lock loop
+  await expect(page.locator('#locBtn')).not.toHaveClass(/active/);
+  expect(errors).toEqual([]);
+});
+
 test('leaving the planner mid-ride warns instead of tearing navigation down', async ({ page }) => {
   const errors = await openArtifact(page);
   await page.evaluate(() => { startOrientation = () => {}; requestOrientation = () => Promise.resolve(false); geo.trigger = () => {}; });
