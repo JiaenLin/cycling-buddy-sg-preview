@@ -24,8 +24,9 @@ const isDark = () => document.documentElement.getAttribute('data-theme') === 'da
 // ---------- state ----------
 let META=null, CPN_META=null, RAIL_META=null, PCN_FEATURES=[], mapLoaded=false, fitted=false;
 let PARKS_META=null, RACKS_META=null, RACK_FEATURES=[], nearRack=null, CLOSURES_META=null, POI=[];
+let MTB_META=null;
 const hidden = new Set();
-let cpnVisible = true, railVisible = true, parksVisible = true, racksVisible = true, closuresVisible = true;
+let cpnVisible = true, railVisible = true, parksVisible = true, racksVisible = true, closuresVisible = true, mtbVisible = true;
 let user=null, nearest=null, locActive=false, pendingStartLoc=false;
 // routing
 let routeMode=false, graphReady=false, graphLoading=null;
@@ -89,9 +90,10 @@ function onMapClick(e){
   const rackHit = map.getLayer('racks-pt') ? map.queryRenderedFeatures(e.point,{layers:['racks-pt']})[0] : null;
   if(rackHit){ showRackPopup(e, rackHit); return; }
   // cycling lines take priority so they stay tappable while the rain overlay is on
-  const lineLayers=['pcn-line','rail-open','rail-closed','cpn-line','rideable-line'].filter(id=>map.getLayer(id));
+  const lineLayers=['pcn-line','rail-open','rail-closed','mtb-route','mtb-trail','cpn-line','rideable-line'].filter(id=>map.getLayer(id));
   const hits = lineLayers.length ? map.queryRenderedFeatures(e.point,{layers:lineLayers}) : [];
   const isRail=id=>id==='rail-open'||id==='rail-closed';
+  const isMtb=id=>id==='mtb-route'||id==='mtb-trail';
   if(!hits.length){
     if(wxVisible){ showWxPopup(e); return; }   // rain map is on → that tap means "forecast here"
     // otherwise fall through to the park underneath, if any
@@ -99,7 +101,7 @@ function onMapClick(e){
     if(parkHit) showParkPopup(e, parkHit);
     return;
   }
-  const f=hits.find(h=>h.layer.id==='pcn-line') || hits.find(h=>isRail(h.layer.id)) || hits[0];
+  const f=hits.find(h=>h.layer.id==='pcn-line') || hits.find(h=>isRail(h.layer.id)) || hits.find(h=>isMtb(h.layer.id)) || hits[0];
   let html;
   if(f.layer.id==='pcn-line'){
     const li=f.properties.loop, col=(li>=0&&li<7)?LOOP_COLORS[li]:OTHER;
@@ -107,6 +109,8 @@ function onMapClick(e){
   } else if(isRail(f.layer.id)){
     const closed=f.properties.status==='closed';
     html=`<b><i class="sw" style="background:var(--rail)"></i>Rail Corridor</b><span class="pk">${closed?'Closed for improvement works · reopening 2027':'Open · former KTM railway trail'}</span>`;
+  } else if(isMtb(f.layer.id)){
+    html=mtbPopupHtml(f);
   } else {
     html=`<b><i class="sw" style="background:${getVar('--cpn')}"></i>Cycling path</b>${f.properties.area?`<span class="pk">${esc(f.properties.area)}</span>`:''}`;
   }
@@ -122,7 +126,7 @@ function showClosurePopup(e){
   const html=`<b><i class="sw" style="background:var(--closed)"></i>${esc(title)}</b><span class="pk">${esc(note)}</span>${link}`;
   new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'250px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
 }
-['pcn-line','cpn-line','rideable-line','rail-open','rail-closed','racks-pt','parks-fill','closed-marker','risk-glow'].forEach(id=>{
+['pcn-line','cpn-line','rideable-line','rail-open','rail-closed','mtb-route','mtb-trail','racks-pt','parks-fill','closed-marker','risk-glow'].forEach(id=>{
   map.on('mouseenter', id, () => map.getCanvas().style.cursor='pointer');
   map.on('mouseleave', id, () => map.getCanvas().style.cursor='');
 });
@@ -140,6 +144,19 @@ function showParkPopup(e, f){
   const sub = (reserve?'Nature reserve':'Park') + ' · ' + size;
   const html=`<b><i class="sw" style="background:var(--park)"></i>${esc(p.name)}</b><span class="pk">${esc(sub)}</span>`;
   new maplibregl.Popup({className:'pcn-popup', closeButton:true, maxWidth:'240px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
+}
+// Mountain-bike line popup — a named route, or a difficulty-graded singletrack segment.
+const MTB_GRADE = ['very easy','easy','intermediate','advanced','expert'];
+const MTB_GRADE_TAG = ['','green','blue','black','double-black'];
+function mtbPopupHtml(f){
+  const p=f.properties, col=getVar('--mtb'), km=Number(p.km)||0;
+  if(p.kind==='route'){
+    const kind = p.network==='lcn' ? 'Off-road cycling route' : 'Mountain-bike route';
+    return `<b><i class="sw" style="background:${col}"></i>${esc(p.name||'Mountain-bike route')}</b><span class="pk">${kind} · ${km.toFixed(1)} km off-road</span>`;
+  }
+  const g=Math.max(0,Math.min(4,Number(p.grade)||0));
+  const tag=MTB_GRADE_TAG[g];
+  return `<b><i class="sw" style="background:${col}"></i>${esc(p.name||'Off-road trail')}</b><span class="pk">Singletrack · ${MTB_GRADE[g]}${tag?' · '+tag:''} · ${km.toFixed(1)} km</span>`;
 }
 
 function addLayers(){
@@ -186,6 +203,21 @@ function addLayers(){
     layout:{'line-join':'round','line-cap':'round','visibility':cpnVis}, paint:{'line-color':cpnCasing,'line-width':wCpnC,'line-opacity':0.75}});
   if(!map.getLayer('rideable-line')) map.addLayer({id:'rideable-line',type:'line',source:'rideable',
     layout:{'line-join':'round','line-cap':'round','visibility':cpnVis}, paint:{'line-color':cpnColor,'line-width':wCpn,'line-opacity':0.9}});
+
+  // Mountain-bike trails (OSM route=mtb relations + reserve-cluster mtb:scale singletrack) — off-road,
+  // drawn above the grey cycling-path network but below the park connectors so the PCN stays dominant.
+  // Sanctioned named routes render as a solid clay line; unofficial technical singletrack as a dashed one.
+  const mtbColor = getVar('--mtb') || (dark ? '#FB6E3C' : '#C2410C');
+  const wMtb  = ['interpolate',['linear'],['zoom'], 11,1.2, 14,2.4, 17,4.2];
+  const wMtbC = ['interpolate',['linear'],['zoom'], 11,2.6, 14,4.2, 17,6.6];
+  const mtbVis = mtbVisible ? 'visible' : 'none';
+  if(!map.getSource('mtb')) map.addSource('mtb',{type:'geojson',data:'data/mtb.lines.geojson'});
+  if(!map.getLayer('mtb-casing')) map.addLayer({id:'mtb-casing',type:'line',source:'mtb',
+    layout:{'line-join':'round','line-cap':'round','visibility':mtbVis}, paint:{'line-color':casing,'line-width':wMtbC,'line-opacity':0.7}});
+  if(!map.getLayer('mtb-trail')) map.addLayer({id:'mtb-trail',type:'line',source:'mtb',filter:['==',['get','kind'],'trail'],
+    layout:{'line-join':'round','line-cap':'butt','visibility':mtbVis}, paint:{'line-color':mtbColor,'line-width':wMtb,'line-dasharray':[1.6,1.2],'line-opacity':0.95}});
+  if(!map.getLayer('mtb-route')) map.addLayer({id:'mtb-route',type:'line',source:'mtb',filter:['==',['get','kind'],'route'],
+    layout:{'line-join':'round','line-cap':'round','visibility':mtbVis}, paint:{'line-color':mtbColor,'line-width':wMtb,'line-opacity':0.95}});
 
   // Rail Corridor: the former KTM railway (heritage trail) — a distinct dashed "sleeper" line, above CPN, below the park connectors
   const railColor = getVar('--rail') || (dark ? '#DDD2C0' : '#4A3226');
@@ -387,6 +419,7 @@ function loadPostcodes(){
 fetch('data/racks.meta.json').then(r=>r.json()).then(m=>{ RACKS_META=m; appendRacksRow(); }).catch(()=>{});
 fetch('data/racks.points.geojson').then(r=>r.json()).then(g=>{ RACK_FEATURES=g.features; computeNearestRack(); updateRackUI(); }).catch(()=>{});
 fetch('data/closures.meta.json').then(r=>r.json()).then(m=>{ CLOSURES_META=m; appendClosuresRow(); }).catch(()=>{});
+fetch('data/mtb.meta.json').then(r=>r.json()).then(m=>{ MTB_META=m; appendMtbRow(); }).catch(()=>{});
 
 function tryFit(){
   if(fitted || !mapLoaded || !META) return;
@@ -935,6 +968,7 @@ function buildLegend(){
   });
   appendRailRow();
   appendCpnRow();
+  appendMtbRow();
   appendParksRow();
   appendRacksRow();
   appendClosuresRow();
@@ -1023,7 +1057,7 @@ function ensureExtrasSep(){
 }
 // Each extra layer arrives on its own fetch, so order by rank rather than arrival:
 // Rail Corridor · cycling paths · parks · bike parking · diversions.
-const EXTRA_RANK = {rail:1, cpn:2, parks:3, racks:4, closures:5};
+const EXTRA_RANK = {rail:1, cpn:2, mtb:3, parks:4, racks:5, closures:6};
 function insertExtra(row, key){
   const body=$('lgBody'); const rank=EXTRA_RANK[key];
   row.dataset.rank=rank;
@@ -1085,6 +1119,33 @@ function toggleCpn(row){
 function setCpnVis(){
   const v = cpnVisible ? 'visible' : 'none';
   for(const id of ['cpn-line','cpn-casing','rideable-line','rideable-casing']) if(map.getLayer(id)) map.setLayoutProperty(id,'visibility',v);
+}
+function appendMtbRow(){
+  if(!MTB_META) return;
+  const body=$('lgBody'); if(!body.children.length) return;   // loops not built yet — called again from buildLegend
+  if(body.querySelector('.lrow-mtb')) return;                  // already added
+  ensureExtrasSep();
+  const sk=$('sheetMtbKm'); if(sk) sk.textContent=MTB_META.total_km.toFixed(1);
+  const row=document.createElement('div'); row.className='lrow lrow-mtb';
+  row.innerHTML =
+    `<button class="sw" aria-pressed="true" aria-label="Toggle mountain bike trails"><i style="background:var(--mtb)"></i></button>`+
+    `<button class="meta" aria-label="Frame mountain bike trails"><span class="name">Mountain-bike trails</span><span class="km">${MTB_META.total_km.toFixed(1)} km</span></button>`+
+    `<button class="zoom" aria-label="Frame mountain bike trails"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5"/></svg></button>`;
+  row.querySelector('.sw').addEventListener('click', ()=>toggleMtb(row));
+  const frame=()=>map.fitBounds(MTB_META.bounds,{padding:{top:80,bottom:180,left:40,right:40}});
+  row.querySelector('.meta').addEventListener('click', frame);
+  row.querySelector('.zoom').addEventListener('click', frame);
+  insertExtra(row, 'mtb');
+}
+function toggleMtb(row){
+  mtbVisible=!mtbVisible;
+  row.classList.toggle('off', !mtbVisible);
+  row.querySelector('.sw').setAttribute('aria-pressed', String(mtbVisible));
+  setMtbVis();
+}
+function setMtbVis(){
+  const v = mtbVisible ? 'visible' : 'none';
+  ['mtb-casing','mtb-trail','mtb-route'].forEach(id=>{ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility',v); });
 }
 function toggleLoop(i,row){
   hidden.has(i) ? hidden.delete(i) : hidden.add(i);

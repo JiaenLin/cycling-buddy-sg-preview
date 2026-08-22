@@ -273,6 +273,26 @@ function checkDatasets() {
   closeTo(markers[0].geometry.coordinates[1], closureMeta.marker[1], 0.000001, 'closure marker latitude');
   assert(/^https:\/\//.test(closureMeta.active?.[0]?.url || ''), 'closures.meta.json: missing HTTPS source URL');
 
+  // Mountain-bike layer (OSM route=mtb relations + reserve-cluster mtb:scale ways). Free-format
+  // like crossings — not hash-locked — but shape, kinds, bounds and length are contract-checked.
+  const mtb = readJson('data/mtb.lines.geojson');
+  const mtbMeta = readJson('data/mtb.meta.json');
+  assert(mtb.type === 'FeatureCollection' && Array.isArray(mtb.features), 'mtb.lines.geojson: expected FeatureCollection');
+  assert(mtbMeta.count === mtb.features.length, `mtb.lines.geojson: ${mtb.features.length} features != mtb.meta.json count ${mtbMeta.count}`);
+  let mtbRoutes = 0, mtbTrails = 0;
+  mtb.features.forEach((feature, index) => {
+    assert(feature.type === 'Feature' && feature.properties && feature.geometry, `mtb.lines.geojson feature ${index}: invalid Feature`);
+    validateGeometry(feature.geometry, 'mtb.lines.geojson', index, ['LineString', 'MultiLineString']);
+    const kind = feature.properties.kind;
+    assert(kind === 'route' || kind === 'trail', `mtb.lines.geojson feature ${index}: kind must be route or trail`);
+    if (kind === 'route') { mtbRoutes += 1; assert(typeof feature.properties.name === 'string' && feature.properties.name, `mtb.lines.geojson feature ${index}: route needs a name`); }
+    else { mtbTrails += 1; assert([0, 1, 2, 3, 4].includes(Number(feature.properties.grade)), `mtb.lines.geojson feature ${index}: trail needs a difficulty grade 0..4`); }
+  });
+  assert(mtbRoutes >= 1 && mtbRoutes === mtbMeta.route_count && mtbTrails === mtbMeta.trail_count,
+    `mtb.meta.json: route/trail counts disagree (${mtbRoutes}/${mtbTrails} vs ${mtbMeta.route_count}/${mtbMeta.trail_count})`);
+  validateBounds(mtbMeta.bounds, collectionBounds(mtb), 'mtb.lines.geojson');
+  closeTo(Number(lineKilometres(mtb).toFixed(1)), mtbMeta.total_km, Math.max(0.1, mtbMeta.total_km * 0.005), 'MTB total_km');
+
   const wx = readJson('data/wx.zones.geojson');
   assert(wx.type === 'FeatureCollection' && wx.features.length === 47, 'wx.zones.geojson: expected 47 areas');
   const areaNames = new Set();
@@ -284,7 +304,7 @@ function checkDatasets() {
     areaNames.add(area);
   });
   assert(areaNames.size === 47, 'wx.zones.geojson: duplicate area names');
-  return '10 production data/meta files; counts, schemas, bounds, lengths, properties and sources';
+  return '11 production data/meta files; counts, schemas, bounds, lengths, properties and sources';
 }
 
 function checkGraphAndRouter() {

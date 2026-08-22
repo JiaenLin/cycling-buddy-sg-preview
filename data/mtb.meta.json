@@ -1,0 +1,37 @@
+{
+  "source": "OpenStreetMap contributors (ODbL)",
+  "total_km": 34.6,
+  "route_km": 15.3,
+  "trail_km": 19.3,
+  "count": 41,
+  "route_count": 4,
+  "trail_count": 37,
+  "bounds": [
+    103.76966,
+    1.34638,
+    103.95449,
+    1.41551
+  ],
+  "routes": [
+    {
+      "name": "Gangsa Loop",
+      "km": 5.03
+    },
+    {
+      "name": "Gangsa Trail",
+      "km": 4.32
+    },
+    {
+      "name": "Dairy Farm Nature Park",
+      "km": 4.02
+    },
+    {
+      "name": "Chestnut Trail",
+      "km": 1.94
+    }
+  ],
+  "areas": {
+    "Chestnut / Dairy Farm / Bukit Timah": 12.2,
+    "Pulau Ubin (Ketam Bike Park)": 7.1
+  }
+}
