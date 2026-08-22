@@ -17,7 +17,7 @@ test('loads all critical layers, supports visibility controls, and restores them
   const errors = await openArtifact(page);
   const requiredLayers = [
     'parks-fill', 'cpn-line', 'rail-open', 'pcn-line', 'risk-glow', 'closed-marker',
-    'route-line', 'track-line', 'wx-zone-fill', 'racks-pt'
+    'route-line', 'track-line', 'wx-zone-fill', 'racks-pt', 'mtb-route', 'mtb-trail'
   ];
   await expect.poll(() => page.evaluate(ids => ids.every(id => Boolean(map.getLayer(id))), requiredLayers)).toBe(true);
 
@@ -601,6 +601,35 @@ test('adds the OSM rideable gap-fill layer, matching and toggling with the cycli
   // the single "Cycling paths" toggle controls it together with the LTA layer
   await page.evaluate(() => { cpnVisible = false; setCpnVis(); });
   await expect.poll(() => page.evaluate(() => map.getLayoutProperty('rideable-line', 'visibility'))).toBe('none');
+  expect(errors).toEqual([]);
+});
+
+test('adds the mountain-bike layer: named routes and graded singletrack, its own legend toggle, tappable', async ({ page }) => {
+  const errors = await openArtifact(page);
+  await expect.poll(() => page.evaluate(() => ['mtb-casing', 'mtb-route', 'mtb-trail'].every(id => Boolean(map.getLayer(id))))).toBe(true);
+  // the shipped layer carries the 4 named route=mtb relations plus reserve-cluster mtb:scale trails
+  const data = await page.evaluate(async () => (await (await fetch('data/mtb.lines.geojson')).json()).features
+    .map(f => ({ kind: f.properties.kind, name: f.properties.name, scale: f.properties.mtb_scale })));
+  expect(data.filter(f => f.kind === 'route').length).toBe(4);
+  expect(data.filter(f => f.kind === 'trail').length).toBeGreaterThanOrEqual(1);
+  expect(data.some(f => f.name === 'Gangsa Loop')).toBe(true);
+  expect(data.filter(f => f.kind === 'trail').every(f => Number.isInteger(f.scale))).toBe(true);
+  // both line layers wear the MTB accent, distinct from the cycling-path grey
+  const [routeCol, mtbVar, cpnCol] = await page.evaluate(() => [
+    map.getPaintProperty('mtb-route', 'line-color'),
+    getComputedStyle(document.documentElement).getPropertyValue('--mtb').trim(),
+    map.getPaintProperty('cpn-line', 'line-color')
+  ]);
+  expect(routeCol).toBe(mtbVar);
+  expect(routeCol).not.toBe(cpnCol);
+  // visible by default and controlled by its own legend row
+  expect(await page.evaluate(() => map.getLayoutProperty('mtb-route', 'visibility') ?? 'visible')).not.toBe('none');
+  if (await page.locator('#legend').evaluate(el => el.classList.contains('collapsed'))) await page.locator('#lgHead').click();
+  const mtbToggle = page.getByRole('button', { name: 'Toggle mountain bike trails' });
+  await expect(mtbToggle).toBeVisible();
+  await mtbToggle.click();
+  await expect.poll(() => page.evaluate(() => map.getLayoutProperty('mtb-route', 'visibility'))).toBe('none');
+  await expect.poll(() => page.evaluate(() => map.getLayoutProperty('mtb-trail', 'visibility'))).toBe('none');
   expect(errors).toEqual([]);
 });
 

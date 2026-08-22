@@ -1,0 +1,33 @@
+{
+  "source": "OpenStreetMap contributors (ODbL)",
+  "total_km": 19.8,
+  "route_km": 15.3,
+  "trail_km": 4.5,
+  "count": 9,
+  "route_count": 4,
+  "trail_count": 5,
+  "bounds": [
+    103.76966,
+    1.34638,
+    103.7894,
+    1.41057
+  ],
+  "routes": [
+    {
+      "name": "Gangsa Loop",
+      "km": 5.03
+    },
+    {
+      "name": "Gangsa Trail",
+      "km": 4.32
+    },
+    {
+      "name": "Dairy Farm Nature Park",
+      "km": 4.02
+    },
+    {
+      "name": "Chestnut Trail",
+      "km": 1.94
+    }
+  ]
+}

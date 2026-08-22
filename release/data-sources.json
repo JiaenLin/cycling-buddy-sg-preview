@@ -75,5 +75,13 @@
     "licence": "OpenStreetMap ODbL; NParks/LTA cycling network under the Singapore Open Data Licence",
     "snapshotAt": "2026-07-22",
     "note": "Route-annotation SPANS (each crossing's two ends [lng1,lat1,lng2,lat2(,name)]; bridges over rivers/canals spanned by their OSM bridge=yes way, road underpasses on the PCN spanned by the tunnel way), not a map layer. Derived artifact needing a live Overpass fetch, so like graph.json it is not reproducible from the repository alone; the committed snapshot is the reviewed one."
+  },
+  "mtb": {
+    "output": "data/mtb.lines.geojson + data/mtb.meta.json",
+    "builder": "build/build_mtb.mjs",
+    "base": "OpenStreetMap via Overpass (relation route=mtb; way mtb:scale), with mtb:scale ways kept only inside the north-west nature-reserve cluster (lng 103.75–103.80, lat 1.34–1.42)",
+    "licence": "OpenStreetMap ODbL",
+    "snapshotAt": "2026-08-22",
+    "note": "Off-road mountain-bike layer: 4 named route=mtb relations (Chestnut Trail, Gangsa Trail, Gangsa Loop, Dairy Farm) plus reserve-cluster mtb:scale singletrack; scattered mis-tagged mtb:scale ways elsewhere (a fishing jetty, a residential road, central slivers) are dropped. Derived artifact needing a live Overpass fetch, so like graph.json it is not reproducible from the repository alone; the committed snapshot is the reviewed one."
   }
 }
