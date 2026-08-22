@@ -1521,27 +1521,27 @@ function computeRoute(){
       if(routeEndRef) addRecent(routeEndRef);
     } else {
       const wp=[{ll:routeStart}, ...vias.map(v=>({ll:v.ll, name:v.name, via:v})), {ll:routeEnd, name:routeEndName}];
-      const combined=stitchRoute(wp);
-      if(!combined){ fail(); return; }
-      routeOptions=[{key:'best', label:vias.length+' stop'+(vias.length>1?'s':''), route:combined}];
+      const opts=stitchOptions(wp);
+      if(!opts){ fail(); return; }
+      routeOptions=multiOptions(opts);
       renderRoutes(routeOptions); selectRoute('best', true); setDock(false); ping('route-planned');
     }
     if(routeResult && routeResult.hasCarWay) toast('Heads up: this route uses roads — wear a helmet (required on Singapore roads).');
   });
 }
-// Best-cycling-coverage leg (mirrors routeThree's "best" pick over a small non-cycling-penalty sweep).
-function bestLeg(a,b){
-  const mults=[0.4,0.7,1,1.6,2.6,4,7,12]; let best=null;
-  for(const m of mults){ const r=Router.route(a,b,{ncm:m}); if(r&&r.meters>0){ r.cyclingPct=r.cyclingMeters/r.meters;
-    if(!best || r.cyclingPct>best.cyclingPct+1e-4 || (Math.abs(r.cyclingPct-best.cyclingPct)<=1e-4 && r.meters<best.meters)) best=r; } }
-  if(!best){ const r0=Router.route(a,b); if(r0&&r0.meters>0){ r0.cyclingPct=r0.cyclingMeters/r0.meters; best=r0; } }
-  return best;
+// Candidate routes for one leg over the non-cycling-penalty sweep (same sweep routeThree uses).
+function legCandidates(a,b){
+  const mults=[0.4,0.7,1,1.6,2.6,4,7,12], cands=[];
+  for(const m of mults){ const r=Router.route(a,b,{ncm:m}); if(r&&r.meters>0){ r.cyclingPct=r.cyclingMeters/r.meters; cands.push(r); } }
+  if(!cands.length){ const r0=Router.route(a,b); if(r0&&r0.meters>0){ r0.cyclingPct=r0.cyclingMeters/r0.meters; cands.push(r0); } }
+  return cands;
 }
-// Route each consecutive waypoint pair (best coverage) and stitch the legs into one routeResult:
-// concatenated geometry/segments, summed metrics, and directions with a "Stop N" marker at each via.
-function stitchRoute(wp){
-  const legR=[];
-  for(let i=1;i<wp.length;i++){ const r=bestLeg(wp[i-1].ll, wp[i].ll); if(!r) return null; legR.push(r); }
+const pickBest=cs=>cs.reduce((a,c)=> (c.cyclingPct>a.cyclingPct+1e-4 || (Math.abs(c.cyclingPct-a.cyclingPct)<=1e-4 && c.meters<a.meters)) ? c : a);
+const pickFast=cs=>cs.reduce((a,c)=> c.meters<a.meters-1e-3 ? c : a);
+function pickBal(cs){ let b=null; for(const c of cs){ if(c.cyclingPct>=0.70 && (!b||c.meters<b.meters)) b=c; } return b||pickBest(cs); }
+// Concatenate one chosen route per leg into a single routeResult: joined geometry/segments, summed
+// metrics, and directions with a "Stop N" marker at each via.
+function stitchLegs(wp, legR){
   const coords=[], legs=[], stops=[]; let dirs=[];
   let meters=0,pcnMeters=0,cyclingMeters=0,roadMeters=0,footMeters=0,quietRoadMeters=0,busyRoadMeters=0,hasCarWay=false;
   for(let li=0; li<legR.length; li++){
@@ -1566,6 +1566,25 @@ function stitchRoute(wp){
   const cyclingPct=meters?cyclingMeters/meters:0;
   return {coords, legs, meters, pcnMeters, cyclingMeters, roadMeters, footMeters, quietRoadMeters, busyRoadMeters,
     cyclingPct, hasCarWay, directions:dirs, stops, multi:true, ok:true};
+}
+// Three whole-trip options — the SAME preference applied to EVERY leg (no per-stop choosing). One
+// candidate sweep per leg (same cost as before), three picks derived from it: best / balanced / fastest.
+function stitchOptions(wp){
+  const legCands=[];
+  for(let i=1;i<wp.length;i++){ const cs=legCandidates(wp[i-1].ll, wp[i].ll); if(!cs.length) return null; legCands.push(cs); }
+  const combine=pick=>stitchLegs(wp, legCands.map(pick));
+  return {best:combine(pickBest), balanced:combine(pickBal), fastest:combine(pickFast)};
+}
+// Deduped, gated option list (mirrors router.js routeThree): Best always; Balanced only if it differs;
+// Fastest only if it saves > max(200 m, 8%) over Best — no near-identical alternatives.
+function multiOptions(o){
+  const same=(a,b)=> !!a&&!!b&&Math.abs(a.meters-b.meters)<40 && Math.abs(a.cyclingPct-b.cyclingPct)<0.02;
+  const out=[{key:'best', label:'Best coverage', route:o.best}];
+  if(o.balanced && !same(o.balanced,o.best)) out.push({key:'balanced', label:'Balanced', route:o.balanced});
+  const fastSaving=o.best.meters-o.fastest.meters;
+  if(fastSaving>Math.max(200,o.best.meters*0.08) && !same(o.fastest,o.best) && !out.some(x=>same(x.route,o.fastest)))
+    out.push({key:'fastest', label:'Fastest', route:o.fastest});
+  return out;
 }
 function fmtMin(m){ m=Math.max(1,Math.round(m)); return m<60 ? m+' min' : Math.floor(m/60)+'h '+(m%60)+'m'; }
 function fmtDist(m){ return m<1000 ? Math.round(m)+' m' : (m/1000).toFixed(1)+' km'; }
@@ -1743,10 +1762,11 @@ function navReroute(){
     const remaining=routeVias.filter(v=>v.ll && !v.reached);   // multi-stop: reroute through the stops still ahead
     if(remaining.length){
       const wp=[{ll:[user.lng,user.lat]}, ...remaining.map(v=>({ll:v.ll,name:v.name,via:v})), {ll:routeEnd,name:routeEndName}];
-      const combined=stitchRoute(wp); if(!combined) return;
-      routeStart=[user.lng,user.lat]; routeSel='best'; routeResult=combined;
-      routeOptions=[{key:'best', label:remaining.length+' stop'+(remaining.length>1?'s':''), route:combined}];
-      combined.stops.forEach(s=>{ s.reached=false; });
+      const opts=stitchOptions(wp); if(!opts) return;
+      const list=multiOptions(opts);
+      routeStart=[user.lng,user.lat]; routeOptions=list;
+      const o=list.find(x=>x.key===routeSel)||list[0]; routeSel=o.key; routeResult=o.route;   // keep the rider's chosen profile
+      routeResult.stops.forEach(s=>{ s.reached=false; });
       refreshRouteSource(); renderDirs(routeResult.directions); renderRouteCrossings(); updateRtControls(); setNavArrows(navStage===2);
       return;
     }

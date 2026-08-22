@@ -200,9 +200,19 @@ test('multi-stop: Add stop turns the destination into a stop and opens a new fin
   await expect.poll(() => page.evaluate(() => Boolean(routeResult) && routeResult.multi === true)).toBe(true);
   expect(await page.evaluate(() => routeResult.stops.length)).toBe(1);
   await expect(page.locator('#rtDirs .rt-step-stop')).toContainText('Stop 1');
-  await expect(page.locator('#rtOptions .rt-rec-eyebrow')).toContainText('1 stop');
+  await expect(page.locator('#rtOptions .rt-rec-eyebrow')).toContainText('Best coverage');
   await expect(page.locator('#rtSwapBtn')).toBeHidden();               // swap is hidden for a multi-stop trip
   await expect.poll(() => page.evaluate(() => map.querySourceFeatures('route').length)).toBeGreaterThan(0);
+
+  // Multi-stop offers the same Best / Balanced / Fastest profiles, each stitched across every leg.
+  const optKeys = await page.evaluate(() => routeOptions.map(o => o.key));
+  expect(optKeys[0]).toBe('best');
+  expect(await page.evaluate(() => routeOptions.every(o => o.route && o.route.multi === true))).toBe(true);
+  if (optKeys.length > 1) {   // if an alternative surfaced, it selects and stays a stitched multi route
+    await page.locator('#rtOptions .rt-alt-toggle').click();
+    await page.locator(`#rtOptions .rt-alt[data-k="${optKeys[1]}"]`).click();
+    await expect.poll(() => page.evaluate(() => routeResult.multi === true && routeSel !== 'best')).toBe(true);
+  }
 
   // Remove the stop → a plain two-point trip again (A → C).
   await page.locator('#rtVias .rt-via-del').click();
