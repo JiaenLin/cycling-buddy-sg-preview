@@ -215,6 +215,7 @@
           </button>
         </div>
         <div id="rtFromResults" class="rt-results" hidden></div>
+        <div id="rtVias"></div>
         <button class="rt-swap" id="rtSwapBtn" type="button" aria-label="Swap start and destination" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v14M4.5 6.5 7 4l2.5 2.5M17 20V6M14.5 17.5 17 20l2.5-2.5"/></svg>
         </button>
@@ -223,6 +224,10 @@
           <input id="rtSearch" class="rt-input" type="search" autocomplete="off" enterkeyhint="search" placeholder="Destination" aria-label="Destination: search a park, MRT station or Singapore postcode, or tap the map">
         </div>
       </div>
+      <button class="rt-addstop" id="rtAddStop" type="button" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Add stop
+      </button>
       <div id="rtScope" class="rt-scope">Set each point: current location <svg class="rt-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.6-6-10a6 6 0 0 1 12 0c0 4.4-6 10-6 10z"/><circle cx="12" cy="11" r="2.3" fill="currentColor" stroke="none"/></svg> · tap the map · search parks, MRT &amp; postcodes</div>
       <div id="rtMapHint" class="rt-maphint" hidden></div>
       <div id="rtChips" class="rt-chips" hidden></div>
@@ -258,7 +263,7 @@
     <p>Everything for a Singapore ride on one map: the <b>7 Park Connector loops</b>, LTA's cycling paths, the Rail Corridor, every park &amp; nature reserve, and island-wide bike parking. Plan routes offline, check the rain &amp; air quality, find your nearest connector, and record your ride.</p>
     <p><b>What you can do</b></p>
     <ul>
-      <li><b>Plan a route offline</b> <span class="kbd">⦚</span> — tap a start &amp; destination for turn-by-turn that prefers park connectors and avoids expressways. You get a recommended route plus <b>Balanced</b> and <b>Fastest</b> options, and <b>bridges &amp; underpasses</b> appear as markers along the way.</li>
+      <li><b>Plan a route offline</b> <span class="kbd">⦚</span> — tap a start &amp; destination — or <b>Add stop</b> for a multi-stop trip — for turn-by-turn that prefers park connectors and avoids expressways. A single point-to-point trip also offers <b>Balanced</b> and <b>Fastest</b> options, and <b>bridges &amp; underpasses</b> appear as markers along the way.</li>
       <li><b>Check weather &amp; air quality</b> <span class="kbd">⛅</span> — a live 2-hour rain forecast, the current temperature, UV index and PM2.5 for where you are, and an island rain-zone map (the <b>cloud</b> button, top-right).</li>
       <li><b>Find your nearest connector &amp; rack</b> <span class="kbd">📍</span> — one tap shows your position, the closest park connector, and the nearest bike parking.</li>
       <li><b>Follow your heading</b> <span class="kbd">➤</span> — the compass turns the map to face the way you're riding; twist two fingers to rotate any time.</li>

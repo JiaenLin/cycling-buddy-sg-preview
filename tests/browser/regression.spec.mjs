@@ -182,6 +182,35 @@ test('plans a fixed route, exposes the road warning, and reports missing routing
   await context.close();
 });
 
+test('multi-stop: Add stop turns the destination into a stop and opens a new final destination', async ({ page }) => {
+  const errors = await openArtifact(page);
+  await page.getByRole('button', { name: 'Plan a ride' }).click();
+  // A → B (Woodlands → a routable southern node)
+  await page.evaluate(() => { handleRouteClick([103.7859, 1.4370]); handleRouteClick([103.86283, 1.28569]); });
+  await expect(page.locator('#rtOptions')).toBeVisible();
+
+  // Add stop: the current destination (B) becomes Stop 1 and the destination field clears.
+  await page.getByRole('button', { name: 'Add stop' }).click();
+  await expect(page.locator('#rtVias .rt-via')).toHaveCount(1);
+  expect(await page.evaluate(() => routeEnd)).toBeNull();
+  expect(await page.evaluate(() => Boolean(routeVias[0] && routeVias[0].ll))).toBe(true);
+
+  // Set the new final destination (C) → a stitched A → B → C trip.
+  await page.evaluate(() => handleRouteClick([103.9040, 1.4043]));
+  await expect.poll(() => page.evaluate(() => Boolean(routeResult) && routeResult.multi === true)).toBe(true);
+  expect(await page.evaluate(() => routeResult.stops.length)).toBe(1);
+  await expect(page.locator('#rtDirs .rt-step-stop')).toContainText('Stop 1');
+  await expect(page.locator('#rtOptions .rt-rec-eyebrow')).toContainText('1 stop');
+  await expect(page.locator('#rtSwapBtn')).toBeHidden();               // swap is hidden for a multi-stop trip
+  await expect.poll(() => page.evaluate(() => map.querySourceFeatures('route').length)).toBeGreaterThan(0);
+
+  // Remove the stop → a plain two-point trip again (A → C).
+  await page.locator('#rtVias .rt-via-del').click();
+  await expect.poll(() => page.evaluate(() => Boolean(routeResult) && !routeResult.multi)).toBe(true);
+  await expect(page.locator('#rtVias .rt-via')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('keeps a planned route through stray taps and drag-edits, clears on Clear and on exit', async ({ page }) => {
   const errors = await openArtifact(page);
   await page.getByRole('button', { name: 'Plan a ride' }).click();

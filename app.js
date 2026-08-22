@@ -32,6 +32,8 @@ let user=null, nearest=null, locActive=false, pendingStartLoc=false;
 let routeMode=false, graphReady=false, graphLoading=null;
 let routeStart=null, routeEnd=null, routeResult=null, mkStart=null, mkEnd=null;
 let routeOptions=null, routeSel='best', routeEndName=null, routeEndRef=null, altsOpen=false;
+let routeVias=[];   // multi-stop: ordered intermediate waypoints [{ll,name,ref,marker,reached}], ll null until set
+const MAX_VIAS=5;
 let recording=false, track=[], recDist=0, recStart=0, recStartEpoch=0, recTimer=null, lastPt=null;
 let pendingUpdateWorker=null, renderPendingUpdate=null;
 // compass / heading-follow ("face direction") mode
@@ -81,7 +83,7 @@ map.on('load', () => { mapLoaded=true; tryFit(); resumeRec(); });
 function onMapClick(e){
   // While planning, a tap sets a point only while one is still needed; once both ends
   // exist the tap falls through to feature inspection, so a stray tap never wipes the route.
-  if(routeMode && (!routeStart || !routeEnd)){ handleRouteClick([e.lngLat.lng, e.lngLat.lat]); return; }
+  if(routeMode && routeNeedsPoint()){ handleRouteClick([e.lngLat.lng, e.lngLat.lat]); return; }
   // a closure alert outranks everything — it's the most important thing to surface if tapped
   const closeLayers=['closed-marker','risk-glow'].filter(id=>map.getLayer(id));
   const closeHit = closeLayers.length ? map.queryRenderedFeatures(e.point,{layers:closeLayers})[0] : null;
@@ -1376,6 +1378,7 @@ function enterRoute(){
   exitHeading(false);
   routeMode=true; map.getCanvas().style.cursor='crosshair';
   show('viewRoute'); setDock(false); ensureGraph(); loadPostcodes(); loadWeather(); loadEnv(); loadCrossings(); updateGpsStatus();
+  renderVias();
   if(routeOptions){ renderRoutes(routeOptions); selectRoute(routeSel,false); }
   else resetRoutePanel();   // start is an explicit choice now (⌖ current location / search / tap) — no silent auto-fill
   updateFieldStates();
@@ -1423,27 +1426,146 @@ function onEndpointDragged(which,ll){
   updateFieldStates(); updateRtControls();
   if(routeStart && routeEnd) computeRoute();   // both ends set → recompute in place
 }
-function clearRoutePoints(){ if(mkStart){mkStart.remove();mkStart=null;} if(mkEnd){mkEnd.remove();mkEnd=null;} routeStart=null; routeEnd=null; }
-function handleRouteClick(ll){   // map taps fill start first, then destination — enforcing the start→destination order
-  if(!routeStart){ setPoint('start',ll); setFromLabel('Dropped pin'); hideResults('rtFromResults'); updateFieldStates(); updateMapHint(); updateRtControls(); }
-  else if(!routeEnd){ routeEndName='Dropped pin'; routeEndRef=null; setPoint('end',ll); hideResults('rtResults'); updateFieldStates(); computeRoute(); }
+function clearRoutePoints(){ if(mkStart){mkStart.remove();mkStart=null;} if(mkEnd){mkEnd.remove();mkEnd=null;} routeStart=null; routeEnd=null; clearVias(); }
+// A route still needs a point while the start, any added stop, or the destination is unset — that's
+// when a map tap should drop a pin (start → each stop in turn → destination) rather than identify a feature.
+function routeNeedsPoint(){ return !routeStart || routeVias.some(v=>!v.ll) || !routeEnd; }
+function handleRouteClick(ll){   // map taps fill start first, then each empty stop in order, then destination
+  if(!routeStart){ setPoint('start',ll); setFromLabel('Dropped pin'); hideResults('rtFromResults'); updateFieldStates(); updateMapHint(); updateRtControls(); return; }
+  const empty=routeVias.findIndex(v=>!v.ll);
+  if(empty>=0){ setViaPoint(empty, ll, 'Dropped pin', null); return; }
+  if(!routeEnd){ routeEndName='Dropped pin'; routeEndRef=null; setPoint('end',ll); const ts=$('rtSearch'); if(ts) ts.value='Dropped pin'; hideResults('rtResults'); updateFieldStates(); computeRoute(); }
+}
+// ---------- multi-stop stops ----------
+function filledVias(){ return routeVias.filter(v=>v.ll); }
+function viaMarkerEl(n){ const el=document.createElement('div'); el.className='via-pin'; el.textContent=String(n); return el; }
+function renumberViaMarkers(){ let n=0; for(const v of routeVias){ if(v.ll){ n++; if(v.marker) v.marker.getElement().textContent=String(n); } } }
+function attachViaMarker(v){
+  if(!v.ll || v.marker) return;
+  const m=new maplibregl.Marker({element:viaMarkerEl(0), draggable:true, anchor:'center'}).setLngLat(v.ll).addTo(map);
+  m.getElement().setAttribute('role','img'); m.getElement().setAttribute('aria-label','Route stop marker — drag to move');
+  m.on('dragend', ()=>{ const p=m.getLngLat(); v.ll=[p.lng,p.lat]; v.reached=false; if(routeStart&&routeEnd) computeRoute(); });
+  v.marker=m;
+}
+function setViaPoint(i, ll, name, ref){
+  const v=routeVias[i]; if(!v) return;
+  v.ll=ll; v.name=name||'Dropped pin'; v.ref=ref||null; v.reached=false;
+  if(v.marker) v.marker.setLngLat(ll); else attachViaMarker(v);
+  renumberViaMarkers(); renderVias();
+  if(routeStart&&routeEnd) computeRoute();
+}
+// "Add stop" extends the trip: the current destination becomes the last stop, and the destination
+// field clears so the next place you set becomes the new final destination — start → …stops… → dest.
+function addStop(){
+  if(routeVias.length>=MAX_VIAS){ toast('Up to '+MAX_VIAS+' stops'); return; }
+  if(!routeEnd){ toast('Set a destination first, then add a stop after it'); return; }
+  const v={ll:routeEnd, name:routeEndName||'Dropped pin', ref:routeEndRef, marker:null, reached:false};
+  if(mkEnd){ mkEnd.remove(); mkEnd=null; }
+  routeVias.push(v); attachViaMarker(v); renumberViaMarkers();
+  routeEnd=null; routeEndName=null; routeEndRef=null; const ts=$('rtSearch'); if(ts) ts.value='';
+  renderVias(); updateFieldStates(); updateRtControls();
+  if(ts) ts.focus();
+  rtHint('Set the new destination — search, tap the map, or pick a saved place.');
+}
+function removeVia(i){
+  const v=routeVias[i]; if(!v) return;
+  if(v.marker) v.marker.remove();
+  routeVias.splice(i,1);
+  renumberViaMarkers(); renderVias(); updateRtControls();
+  if(routeStart&&routeEnd) computeRoute();
+}
+function moveVia(i,dir){
+  const j=i+dir; if(j<0||j>=routeVias.length) return;
+  const t=routeVias[i]; routeVias[i]=routeVias[j]; routeVias[j]=t;
+  renumberViaMarkers(); renderVias();
+  if(filledVias().length && routeStart&&routeEnd) computeRoute();
+}
+function clearVias(){ for(const v of routeVias){ if(v.marker) v.marker.remove(); } routeVias=[]; renderVias(); }
+function renderVias(){
+  const box=$('rtVias'); if(!box) return;
+  box.innerHTML='';
+  routeVias.forEach((v,i)=>{
+    const n=filledVias().indexOf(v); const label=(n>=0?n+1:filledVias().length+1);
+    const row=document.createElement('div'); row.className='rt-row rt-via'; row.dataset.vi=i;
+    row.innerHTML =
+      `<span class="rt-node rt-node-via" aria-hidden="true">${label}</span>`+
+      `<input class="rt-input" type="search" autocomplete="off" enterkeyhint="search" placeholder="Stop ${label}" aria-label="Stop ${label}: search a park, MRT or postcode, or tap the map">`+
+      `<button class="rt-via-move" data-dir="-1" type="button" aria-label="Move stop earlier"${i===0?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>`+
+      `<button class="rt-via-move" data-dir="1" type="button" aria-label="Move stop later"${i===routeVias.length-1?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>`+
+      `<button class="rt-via-del" type="button" aria-label="Remove stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+    const inp=row.querySelector('.rt-input'); inp.value=v.name||'';
+    box.appendChild(row);
+    const res=document.createElement('div'); res.className='rt-results rt-via-results'; res.hidden=true; box.appendChild(res);
+  });
+}
+function runViaSearch(row){
+  const inp=row.querySelector('.rt-input'), resBox=row.nextElementSibling;
+  const raw=inp.value.trim(), pc=raw.replace(/\s+/g,''), res=searchHits(raw);
+  renderResults(resBox, res, raw);
+  if(res.loading) loadPostcodes().then(()=>{ if(document.body.contains(inp) && inp.value.trim().replace(/\s+/g,'')===pc) runViaSearch(row); });
 }
 function computeRoute(){
   if(!routeStart||!routeEnd) return;
   ensureGraph().then(ok=>{
     if(!ok) return;
-    const list=Router.routeThree(routeStart,routeEnd);
-    if(!list){
-      routeOptions=null; routeResult=null;
+    const vias=filledVias();
+    const fail=()=>{ routeOptions=null; routeResult=null;
       const sN=Router.nearestNode(routeStart), eN=Router.nearestNode(routeEnd);
       const tooFar = !sN || !eN || sN.dist>Router.MAX_SNAP || eN.dist>Router.MAX_SNAP;
-      toast(tooFar ? 'No cycling path near there — tap closer to a route' : 'No route found between those points');
-      hideOptions(); refreshRouteSource(); updateRtControls(); return;
+      toast(tooFar ? 'No cycling path near there — move a pin closer to a route' : 'No route found through those points');
+      hideOptions(); refreshRouteSource(); updateRtControls(); };
+    if(!vias.length){
+      const list=Router.routeThree(routeStart,routeEnd);
+      if(!list){ fail(); return; }
+      routeOptions=list; renderRoutes(list); selectRoute('best', true); setDock(false); ping('route-planned');
+      if(routeEndRef) addRecent(routeEndRef);
+    } else {
+      const wp=[{ll:routeStart}, ...vias.map(v=>({ll:v.ll, name:v.name, via:v})), {ll:routeEnd, name:routeEndName}];
+      const combined=stitchRoute(wp);
+      if(!combined){ fail(); return; }
+      routeOptions=[{key:'best', label:vias.length+' stop'+(vias.length>1?'s':''), route:combined}];
+      renderRoutes(routeOptions); selectRoute('best', true); setDock(false); ping('route-planned');
     }
-    routeOptions=list; renderRoutes(list); selectRoute('best', true); setDock(false); ping('route-planned');
-    if(routeEndRef) addRecent(routeEndRef);
     if(routeResult && routeResult.hasCarWay) toast('Heads up: this route uses roads — wear a helmet (required on Singapore roads).');
   });
+}
+// Best-cycling-coverage leg (mirrors routeThree's "best" pick over a small non-cycling-penalty sweep).
+function bestLeg(a,b){
+  const mults=[0.4,0.7,1,1.6,2.6,4,7,12]; let best=null;
+  for(const m of mults){ const r=Router.route(a,b,{ncm:m}); if(r&&r.meters>0){ r.cyclingPct=r.cyclingMeters/r.meters;
+    if(!best || r.cyclingPct>best.cyclingPct+1e-4 || (Math.abs(r.cyclingPct-best.cyclingPct)<=1e-4 && r.meters<best.meters)) best=r; } }
+  if(!best){ const r0=Router.route(a,b); if(r0&&r0.meters>0){ r0.cyclingPct=r0.cyclingMeters/r0.meters; best=r0; } }
+  return best;
+}
+// Route each consecutive waypoint pair (best coverage) and stitch the legs into one routeResult:
+// concatenated geometry/segments, summed metrics, and directions with a "Stop N" marker at each via.
+function stitchRoute(wp){
+  const legR=[];
+  for(let i=1;i<wp.length;i++){ const r=bestLeg(wp[i-1].ll, wp[i].ll); if(!r) return null; legR.push(r); }
+  const coords=[], legs=[], stops=[]; let dirs=[];
+  let meters=0,pcnMeters=0,cyclingMeters=0,roadMeters=0,footMeters=0,quietRoadMeters=0,busyRoadMeters=0,hasCarWay=false;
+  for(let li=0; li<legR.length; li++){
+    const r=legR[li];
+    for(let k=(li?1:0);k<r.coords.length;k++) coords.push(r.coords[k].slice());
+    for(const seg of r.legs){
+      if(legs.length && legs[legs.length-1].kind===seg.kind){ const cur=legs[legs.length-1].coords; for(let k=1;k<seg.coords.length;k++) cur.push(seg.coords[k].slice()); }
+      else legs.push({kind:seg.kind, coords:seg.coords.map(c=>c.slice())});
+    }
+    meters+=r.meters; pcnMeters+=r.pcnMeters; cyclingMeters+=r.cyclingMeters; roadMeters+=r.roadMeters;
+    footMeters+=r.footMeters; quietRoadMeters+=r.quietRoadMeters; busyRoadMeters+=r.busyRoadMeters; hasCarWay=hasCarWay||r.hasCarWay;
+    const legDirs=r.directions.slice();
+    if(li>0 && legDirs.length && legDirs[0].type==='start') legDirs.shift();
+    if(li<legR.length-1 && legDirs.length && legDirs[legDirs.length-1].type==='arrive') legDirs.pop();
+    dirs=dirs.concat(legDirs);
+    if(li<legR.length-1){
+      const w=wp[li+1], nm=w.name||'Stop '+(li+1);
+      dirs.push({type:'waypoint', text:'Stop '+(li+1)+' · '+nm, meters:0});
+      stops.push({at:coords.length-1, ll:w.ll, index:li+1, name:w.name||'', via:w.via||null});
+    }
+  }
+  const cyclingPct=meters?cyclingMeters/meters:0;
+  return {coords, legs, meters, pcnMeters, cyclingMeters, roadMeters, footMeters, quietRoadMeters, busyRoadMeters,
+    cyclingPct, hasCarWay, directions:dirs, stops, multi:true, ok:true};
 }
 function fmtMin(m){ m=Math.max(1,Math.round(m)); return m<60 ? m+' min' : Math.floor(m/60)+'h '+(m%60)+'m'; }
 function fmtDist(m){ return m<1000 ? Math.round(m)+' m' : (m/1000).toFixed(1)+' km'; }
@@ -1499,14 +1621,15 @@ const DIR_ICONS={
   'slight-left':'<path d="M14 20v-6a4 4 0 0 0-4-4H7"/><path d="M10 6 6 9l4 3"/>',
   'slight-right':'<path d="M10 20v-6a4 4 0 0 1 4-4h3"/><path d="m14 6 4 3-4 3"/>',
   'sharp-left':'<path d="M16 20V11a4 4 0 0 0-4-4H8"/><path d="M10 3 6 7l4 4"/>',
-  'sharp-right':'<path d="M8 20V11a4 4 0 0 1 4-4h4"/><path d="m14 3 4 4-4 4"/>'
+  'sharp-right':'<path d="M8 20V11a4 4 0 0 1 4-4h4"/><path d="m14 3 4 4-4 4"/>',
+  waypoint:'<circle cx="12" cy="10" r="7"/><circle cx="12" cy="10" r="2.4" fill="currentColor" stroke="none"/><path d="M12 17v4"/>'
 };
 function renderDirs(dirs){
   const box=$('rtDirs'); box.innerHTML='';
   for(const d of dirs){
     const ic=DIR_ICONS[d.type]||DIR_ICONS.start;
     const dist = d.meters>=1000 ? (d.meters/1000).toFixed(1)+' km' : (d.meters?Math.round(d.meters)+' m':'');
-    const row=document.createElement('div'); row.className='rt-step';
+    const row=document.createElement('div'); row.className='rt-step'+(d.type==='waypoint'?' rt-step-stop':'');
     row.innerHTML=`<span class="ic"><svg viewBox="0 0 24 24">${ic}</svg></span><span class="tx">${esc(d.text)}</span><span class="ds">${dist}</span>`;
     box.appendChild(row);
   }
@@ -1514,8 +1637,13 @@ function renderDirs(dirs){
 }
 function updateRtControls(){
   $('rtActionBar').hidden = !routeResult;
-  $('rtClrBtn').hidden = !(routeStart||routeEnd);
-  $('rtSwapBtn').hidden = !(routeStart&&routeEnd);
+  $('rtClrBtn').hidden = !(routeStart||routeEnd||routeVias.length);
+  // Swap only makes sense for a plain start↔destination trip; a multi-stop trip hides it.
+  $('rtSwapBtn').hidden = !(routeStart&&routeEnd) || filledVias().length>0;
+  // "Add stop" appears only once a destination exists — it turns that destination into a stop and
+  // opens a fresh destination for the next point you set.
+  const add=$('rtAddStop');
+  if(add){ add.hidden = navActive || !routeEnd || routeVias.length>=MAX_VIAS; }
   if(!routeResult) closeMenu();
   setDockH();   // control set changed → keep FABs/peek synced
 }
@@ -1598,6 +1726,9 @@ function liveGuidance(){
   const proj=projectOnRoute([user.lng,user.lat], coords);
   if(proj.dist>45){ if(++offRouteCount>=3){ offRouteCount=0; navReroute(); } else setNavBanner('Off route','head back to the highlighted line'); return; }
   offRouteCount=0;
+  // Multi-stop: call out each stop as you reach it (and mark it done so a reroute skips it).
+  if(routeResult.stops) for(const s of routeResult.stops){ if(!s.reached){ const d=haversine(user.lat,user.lng,s.ll[1],s.ll[0]);
+    if(d<35){ s.reached=true; if(s.via) s.via.reached=true; toast('Stop '+s.index+(s.name?' · '+s.name:'')+' reached — carry on'); } } }
   const end=coords[coords.length-1], dEnd=haversine(user.lat,user.lng,end[1],end[0]);
   if(dEnd<30){ setNavBanner('You’ve arrived 🎉',''); navActive=false; const b=$('rtGoBtn'); if(b) b.innerHTML=GO_HTML; return; }
   announceCrossing(proj);   // heads-up when a bridge/underpass is coming up ahead on this route
@@ -1609,6 +1740,16 @@ function navReroute(){
   if(!routeEnd || !user) return;
   toast('Off route — rerouting');
   ensureGraph().then(ok=>{ if(!ok) return;
+    const remaining=routeVias.filter(v=>v.ll && !v.reached);   // multi-stop: reroute through the stops still ahead
+    if(remaining.length){
+      const wp=[{ll:[user.lng,user.lat]}, ...remaining.map(v=>({ll:v.ll,name:v.name,via:v})), {ll:routeEnd,name:routeEndName}];
+      const combined=stitchRoute(wp); if(!combined) return;
+      routeStart=[user.lng,user.lat]; routeSel='best'; routeResult=combined;
+      routeOptions=[{key:'best', label:remaining.length+' stop'+(remaining.length>1?'s':''), route:combined}];
+      combined.stops.forEach(s=>{ s.reached=false; });
+      refreshRouteSource(); renderDirs(routeResult.directions); renderRouteCrossings(); updateRtControls(); setNavArrows(navStage===2);
+      return;
+    }
     const list=Router.routeThree([user.lng,user.lat], routeEnd); if(!list) return;
     routeStart=[user.lng,user.lat]; routeOptions=list;
     const o=list.find(x=>x.key===routeSel)||list[0]; routeSel=o.key; routeResult=o.route;
@@ -1621,6 +1762,7 @@ function updateFabStack(){ const f=$('fabStack'); if(f) f.classList.toggle('ridi
 function startNav(){
   if(!routeResult) return;
   navActive=true; offRouteCount=0; routeCross.forEach(c=>c.announced=false); updateFabStack(); updateCrossVisibility();   // GO always shows the crossings
+  if(routeResult.stops) routeResult.stops.forEach(s=>{ s.reached=false; });   // multi-stop: re-arm the stop callouts
   if(!headingMode) enterHeading(true);   // GO auto-activates facing-direction: compass follow + heading arrow
   closeMenu(); setDock(true);                                      // fold the planner so the map + turn banner lead
   $('rtGoBtn').textContent='End ride';
@@ -1696,6 +1838,17 @@ $('rtSwapBtn').addEventListener('click', ()=>{
   setFromLabel(endName||'Dropped pin'); $('rtSearch').value=fromVal||'';
   routeEndName=fromVal||'Start point'; routeEndRef=endRef&&endRef.name===fromVal?endRef:null; // keep the ref only if it still names the destination
   updateFieldStates(); computeRoute();
+});
+// Multi-stop: add stops between start and destination; each via row searches / taps / reorders / removes.
+$('rtAddStop').addEventListener('click', addStop);
+$('rtVias').addEventListener('input', e=>{ const inp=e.target.closest('.rt-input'); if(inp){ const row=inp.closest('.rt-via'); if(row) runViaSearch(row); } });
+$('rtVias').addEventListener('click', e=>{
+  const resBtn=e.target.closest('.rt-result');
+  if(resBtn){ const box=resBtn.closest('.rt-via-results'); const row=box&&box.previousElementSibling;
+    if(row){ const p=(box._hits||[])[+resBtn.dataset.i]; if(p) setViaPoint(+row.dataset.vi,[p.lng,p.lat],p.name,{rk:p.rk,rv:p.rv}); } return; }
+  const row=e.target.closest('.rt-via'); if(!row) return; const vi=+row.dataset.vi;
+  const mv=e.target.closest('.rt-via-move'); if(mv){ moveVia(vi, +mv.dataset.dir); return; }
+  if(e.target.closest('.rt-via-del')) removeVia(vi);
 });
 $('rtMoreBtn').addEventListener('click', ()=>{ const m=$('rtMenu'); const open=m.hidden; m.hidden=!open; $('rtMoreBtn').setAttribute('aria-expanded', String(open)); if(open) setDockH(); });
 $('rtSaveBtn').addEventListener('click', ()=>{

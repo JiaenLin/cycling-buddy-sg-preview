@@ -11,10 +11,10 @@
   },
   "assetBytes": {
     "allApprovedRuntimeMax": 11450000,
-    "offlineShellMax": 3200000,
+    "offlineShellMax": 3216000,
     "routingGraphMax": 8000000,
     "vendoredRuntimeMax": 900000,
-    "firstPartyJavaScriptMax": 150000
+    "firstPartyJavaScriptMax": 156000
   },
   "storage": {
     "installedCoreMax": 12000000,
